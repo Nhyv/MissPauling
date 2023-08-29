@@ -11,12 +11,10 @@ public class DmMessageTemplateTypeParser : DiscordGuildTypeParser<DmMessageTempl
 {
     public override async ValueTask<ITypeParserResult<DmMessageTemplate>> ParseAsync(IDiscordGuildCommandContext context, IParameter parameter, ReadOnlyMemory<char> value)
     {
-        var str = value.ToString().ToLower();
-
         using var scope = context.Services.CreateScope();
         await using var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
 
-        if (await db.DmMessageTemplates.FindAsync(str) is { } template)
+        if (await db.DmMessageTemplates.FindAsync(value.ToString()) is { } template)
         {
             return Success(template);
         }

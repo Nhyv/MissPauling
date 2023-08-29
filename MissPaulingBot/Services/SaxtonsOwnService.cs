@@ -22,6 +22,7 @@ public class SaxtonsOwnService : DiscordBotService
         if (await db.SaxtonOwnRoles.FindAsync(e.MemberId.RawValue) is not { } saxtonOwn)
             return;
 
-        await Bot.RevokeRoleAsync(e.GuildId, e.MemberId, saxtonOwn.Id);
+        db.Remove(saxtonOwn);
+        await db.SaveChangesAsync();
     }
 }

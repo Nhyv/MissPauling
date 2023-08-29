@@ -23,7 +23,7 @@ public class PremiumService : DiscordBotService
             {
                 message +=
                     " Since you have selected the $10 subscription 'Saxton's Own', you may receive a role with a custom name, color, and icon." +
-                    " Please make sure to choose an appropriate name, a color that is not already in use by our moderators and an appropriate static icon under 256KB. Once that is done, ping or DM a moderator with the information!";
+                    $" Please make sure to choose an appropriate name, a color that is not already in use by our moderators and an appropriate static icon under 256KB. Once that is done, use {Mention.SlashCommand(1069899747801960548, "premium role")}!";
             }
 
             await Bot.SendMessageAsync(Constants.PREMIUM_CHANNEL_ID, new LocalMessage().WithContent(message));

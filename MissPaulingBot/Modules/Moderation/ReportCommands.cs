@@ -27,7 +27,7 @@ public class ReportCommands : DiscordApplicationGuildModuleBase
         var userMessage = message as IUserMessage;
 
         if (userMessage is null)
-            return Response("You cannot report this type of message.");
+            return Response("You cannot report this type of message.").AsEphemeral();
 
         if (message.Author.IsBot)
             return Response("You cannot report a bot.").AsEphemeral();
