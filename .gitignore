@@ -402,3 +402,4 @@ FodyWeavers.xsd
 Data/
 .dockerignore
 Dockerfile
+publish.ps1
