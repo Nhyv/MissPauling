@@ -49,7 +49,7 @@ namespace MissPaulingBot.Modules.Moderation
                 {
                     await user.SendMessageAsync(new LocalMessage().WithContent($"{template?.Response} {message}"));
 
-                    return Response("Sent!");
+                    return Response("You have sent the following message successfully:", embed.WithFooter("Post-modmail feedback"));
                 }
                 catch
                 {
@@ -148,8 +148,8 @@ namespace MissPaulingBot.Modules.Moderation
                     return Response(
                         "This user either blocked me, has their DMs set to Friends Only, or no longer shares a server with me.");
                 }
-                
-                return Response("Sent!");
+
+                return Response("You have sent the following message successfully:", embed.WithFooter("Post-modmail feedback"));
             }
 
             return default;
