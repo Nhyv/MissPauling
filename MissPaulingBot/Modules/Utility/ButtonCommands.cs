@@ -653,7 +653,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         var imageUrls = string.Empty;
 
         if (message is null)
-            return Response("I could not access this message data on Discord's end. This happens if the message is old or was deleted during your report.");
+            return Response("I could not access this message data on Discord's end. This happens if the message is old or was deleted during your report.").AsEphemeral();
 
         if (message.Attachments.Count > 0)
         {
