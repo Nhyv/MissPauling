@@ -31,12 +31,20 @@ public class StreamerAppsCommands : DiscordApplicationModuleBase
             return Response("You've already applied.").AsEphemeral();
 
         var modal = new LocalInteractionModalResponse().WithTitle("Streamer Application")
-            .WithCustomId($"StreamerApplication:Apply").WithComponents(new LocalRowComponent().WithComponents(new LocalTextInputComponent()
+            .WithCustomId($"StreamerApplication:Apply").WithComponents(
+                new LocalRowComponent().WithComponents(new LocalTextInputComponent()
                 .WithLabel("What type of content will you stream?")
                 .WithStyle(TextInputComponentStyle.Short).WithCustomId("content")
                 .WithIsRequired()
-                .WithPlaceholder("Enter your answer here...")), new LocalRowComponent().WithComponents(new LocalTextInputComponent()
+                .WithPlaceholder("Enter your answer here...")),
+                new LocalRowComponent().WithComponents(new LocalTextInputComponent()
                 .WithLabel("Why do you want to stream?").WithCustomId("reason")
+                .WithStyle(TextInputComponentStyle.Paragraph)
+                .WithIsRequired()
+                .WithMaximumInputLength(Discord.Limits.Message.Embed.Field.MaxValueLength)
+                .WithPlaceholder("Enter your answer here...")),
+                new LocalRowComponent().WithComponents(new LocalTextInputComponent()
+                .WithLabel("Any other streaming profiles? Link them!").WithCustomId("platform")
                 .WithStyle(TextInputComponentStyle.Paragraph)
                 .WithIsRequired()
                 .WithMaximumInputLength(Discord.Limits.Message.Embed.Field.MaxValueLength)
@@ -59,21 +67,23 @@ public class StreamerAppsModalCommands : DiscordComponentModuleBase
     }
 
     [ModalCommand("StreamerApplication:Apply")]
-    public async Task<IResult> ApplyAsync(string content, string reason)
+    public async Task<IResult> ApplyAsync(string content, string reason, string platform)
     {
         _db.StreamerApplications.Add(new StreamerApplication
         {
             UserId = Context.Author.Id.RawValue,
             ContentAnswer = content,
-            ReasonAnswer = reason
+            ReasonAnswer = reason,
+            PlatformAnswer = platform
         });
 
         await _db.SaveChangesAsync();
 
         var embed = EmbedUtilities.SuccessBuilder.WithAuthor($"{Context.Author.Tag} ({Context.Author.Id})", Context.Author.GetAvatarUrl())
-            .WithFields(new LocalEmbedField().WithName("What type of content will you stream?")
-                .WithValue(content), new LocalEmbedField()
-                .WithName("Why do you want to stream?").WithValue(reason));
+            .WithFields(
+                new LocalEmbedField().WithName("What type of content will you stream?").WithValue(content),
+                new LocalEmbedField().WithName("Why do you want to stream?").WithValue(reason),
+                new LocalEmbedField().WithName("Any other streaming profiles? Link them!").WithValue(platform));
         await Context.Bot.SendMessageAsync(Constants.APPLICATION_CHANNEL_ID,
             new LocalMessage().WithEmbeds(embed).WithComponents(new LocalRowComponent().WithComponents(
                 new LocalButtonComponent().WithStyle(LocalButtonComponentStyle.Success).WithLabel("Approve")

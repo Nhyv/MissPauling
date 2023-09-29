@@ -48,5 +48,7 @@ namespace MissPaulingBot.Common
         public DbSet<Suggestion> Suggestions { get; set; }
         public DbSet<ToDo> ToDos { get; set; }
         public DbSet<SaxtonOwnRole> SaxtonOwnRoles { get; set; }
+        
+        public DbSet<VerificationEntry> VerificationEntries { get; set; }
     }
 }

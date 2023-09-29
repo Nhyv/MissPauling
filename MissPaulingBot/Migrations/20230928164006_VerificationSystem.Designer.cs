@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MissPaulingBot.Common;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MissPaulingBot.Migrations
 {
     [DbContext(typeof(PaulingDbContext))]
-    partial class PaulingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20230928164006_VerificationSystem")]
+    partial class VerificationSystem
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -624,9 +627,9 @@ namespace MissPaulingBot.Migrations
                         .HasColumnName("user_id");
 
                     b.HasKey("SteamId")
-                        .HasName("pk_verification_entries");
+                        .HasName("pk_verification_entry");
 
-                    b.ToTable("verification_entries", (string)null);
+                    b.ToTable("verification_entry", (string)null);
                 });
 
             modelBuilder.Entity("StickyRoleStickyUser", b =>

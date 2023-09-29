@@ -9,7 +9,9 @@ public class StreamerApplication : IEntityTypeConfiguration<StreamerApplication>
 
     public string ContentAnswer { get; set; }
 
-    public string ReasonAnswer { get; set; }                                                                                                                                                     
+    public string ReasonAnswer { get; set; }
+    
+    public string PlatformAnswer { get; set; }
 
     public void Configure(EntityTypeBuilder<StreamerApplication> builder)
     {

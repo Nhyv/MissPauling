@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot.Commands.Components;
+using Disqord.Extensions.Interactivity;
 using Disqord.Extensions.Interactivity.Menus.Prompt;
 using Disqord.Gateway;
 using Disqord.Rest;
@@ -286,10 +287,10 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 " set of rules:\n- During IRL streams, for the safety of all users involved, you are not allowed to" +
                 " point your camera at yourself at any point. You may stream bread baking, pasta making or whatever" +
                 " makes your heart happy that does not break our rules. We are aware you most likely don't have" +
-                " any ill intents. However, in a 70k+ members server, you don't know what kind of people will be" +
+                " any ill intents. However, in a 100k+ members server, you don't know what kind of people will be" +
                 " looking at you and what they will be doing with what you are sharing from your webcam.\n- If" +
                 " someone earrapes or is being a nuisance on your stream, you have permission to mute them. However," +
-                " please make sure to tell us why you muted them.\n-If someone broke the rules in your channel and" +
+                " please make sure to tell us why you muted them.\n- If someone broke the rules in your channel and" +
                 " made sure to leave, please let us know via this DM channel. We have logs and can catch them if you" +
                 " don't remember their name.\n- If another streamer is already streaming in a channel, request for" +
                 " permission to start yours, if you wish to be in the same channel as them.They might not want to share" +
@@ -496,6 +497,113 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         {
             return Response("I could not contact this user.").AsEphemeral();
         }
+    }
+    // NEW SYSTEM
+    [ButtonCommand("SteamSpy:Ban:*:*")]
+    public async Task<IResult> BanUser(Snowflake steamId, Snowflake userId)
+    {
+        var interaction = (IComponentInteraction)Context.Interaction;
+
+        var modal = new LocalInteractionModalResponse().WithTitle("Extra Information").WithCustomId("SteamSpy:Comment")
+            .WithComponents(new LocalRowComponent().WithComponents(new LocalTextInputComponent().WithLabel("Information about the case?")
+                .WithStyle(TextInputComponentStyle.Paragraph).WithCustomId("details")
+                .WithPlaceholder("Enter here why they were banned.")
+                .WithMinimumInputLength(10)
+                .WithMaximumInputLength(1500)));
+        await Context.Interaction.Response().SendModalAsync(modal);
+        
+        _ = Task.Run(async () =>
+        {
+            var modalInteraction = await Bot.WaitForInteractionAsync<IModalSubmitInteraction>(Context.ChannelId, "SteamSpy:Comment");
+            
+            if (modalInteraction is null)
+                return;
+
+            var details = ((IRowComponent)modalInteraction.Components[1]).Components
+                .OfType<ITextInputComponent>().Single(x => x.CustomId == "details").Value;
+            
+            await interaction.Message.ModifyAsync(x =>
+            {
+                x.Content = interaction.Message.Content +
+                            $"\nBanned by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
+                x.Components = new List<LocalRowComponent>();
+            });
+        
+            _db.VerificationEntries.Add(new VerificationEntry
+            {
+                SteamId = steamId,
+                UserId = userId,
+                EntryType = EntryType.Blacklisted,
+                AdditionalComment = details,
+                ModeratorId = Context.AuthorId
+            });
+
+            await _db.SaveChangesAsync();
+            await Context.Bot.CreateBanAsync(Context.GuildId, userId, $"Banned during verification: {details}");
+        });
+        return default;
+    }
+    
+    [ButtonCommand("SteamSpy:Verify:*:*")]
+    public async Task<IResult> VerifyUser(Snowflake steamId, Snowflake userId)
+    {
+        var interaction = (IComponentInteraction)Context.Interaction;
+
+        await interaction.Message.ModifyAsync(x =>
+        {
+            x.Content = interaction.Message.Content +
+                        $"\nVerified by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
+            x.Components = new List<LocalRowComponent>();
+        });
+        
+        _db.VerificationEntries.Add(new VerificationEntry
+        {
+            SteamId = steamId,
+            UserId = userId,
+            EntryType = EntryType.Accepted,
+            ModeratorId = Context.AuthorId
+        });
+
+        await _db.SaveChangesAsync();
+        await Bot.GrantRoleAsync(Context.GuildId, userId, Constants.CONTRACT_KILLER_ROLE_ID);
+        
+        try
+        {
+            var dmChannel = await Bot.CreateDirectChannelAsync(userId);
+            await dmChannel.SendMessageAsync(new LocalMessage().WithContent(
+                "You have been verified, welcome to the TF2 Community Discord server!"));
+
+            return default;
+        }
+        catch 
+        {
+            return Response("I could not contact this user, but I granted the role.").AsEphemeral();
+        }
+    }
+    
+    [ButtonCommand("SteamSpy:Reject:*:*")]
+    public async Task<IResult> RejectUser(Snowflake steamId, Snowflake userId)
+    {
+        var interaction = (IComponentInteraction)Context.Interaction;
+
+        await interaction.Message.ModifyAsync(x =>
+        {
+            x.Content = interaction.Message.Content +
+                        $"\nRejected by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
+            x.Components = new List<LocalRowComponent>();
+        });
+        
+        _db.VerificationEntries.Add(new VerificationEntry
+        {
+            SteamId = steamId,
+            UserId = userId,
+            EntryType = EntryType.Blacklisted,
+            ModeratorId = Context.AuthorId,
+            AdditionalComment = "Rejected"
+        });
+        await _db.SaveChangesAsync();
+        
+        return default;
     }
 
     [ButtonCommand("Forum:Close:*")]
