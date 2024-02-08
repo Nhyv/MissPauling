@@ -57,14 +57,14 @@ public class ToDoCommands : DiscordApplicationModuleBase
 
         try
         {
-            var dm = await Bot.CreateDirectChannelAsync(todo.ModeratorId);
+            var dm = await Bot.CreateDirectChannelAsync(todo!.ModeratorId);
             await dm.SendMessageAsync(new LocalMessage().WithContent(
                 $"Your suggestion '{todo.Title}' has been completed! An announcement post may be posted for more details."));
         }
         catch
         {
             var dm = await Bot.CreateDirectChannelAsync(227578898521653249);
-            await dm.SendMessageAsync(new LocalMessage().WithContent($"Could not dm {todo.ModeratorId}!"));
+            await dm.SendMessageAsync(new LocalMessage().WithContent($"Could not dm {todo!.ModeratorId}!"));
         }
 
         _db.ToDos.Remove(todo);
@@ -78,9 +78,9 @@ public class ToDoCommands : DiscordApplicationModuleBase
     public async Task<IResult> ViewTodoStatusAsync([Description("The todo entry ID.")] int id)
     {
         var todo = await _db.ToDos.FindAsync(id);
-        var moderator = await Bot.GetOrFetchUserAsync(todo.ModeratorId);
+        var moderator = await Bot.GetOrFetchUserAsync(todo!.ModeratorId);
         var embed = EmbedUtilities.SuccessBuilder.WithTitle(todo.Title).WithDescription(todo.Description)
-            .AddField("Requested By", moderator.Tag).AddField("Created",
+            .AddField("Requested By", moderator!.Tag).AddField("Created",
                 Markdown.Timestamp(todo.CreatedAt));
 
         return Response(embed);
@@ -92,7 +92,7 @@ public class ToDoCommands : DiscordApplicationModuleBase
     {
         var todo = await _db.ToDos.FindAsync(id);
 
-        _db.ToDos.Remove(todo);
+        _db.ToDos.Remove(todo!);
         await _db.SaveChangesAsync();
 
         return Response("Todo successfully removed.").AsEphemeral();
@@ -105,7 +105,7 @@ public class ToDoCommands : DiscordApplicationModuleBase
     {
         var toDos = await _db.ToDos.ToListAsync();
 
-        id.Choices.AddRange(toDos.Take(25).ToDictionary(
+        id.Choices!.AddRange(toDos.Take(25).ToDictionary(
             x => $"{x.Id} - {x.Description.TrimTo(Discord.Limits.ApplicationCommand.Option.Choice.MaxNameLength - 25)}"
             , x => x.Id));
     }

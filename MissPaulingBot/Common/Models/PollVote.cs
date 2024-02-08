@@ -13,7 +13,7 @@ public class PollVote : IEntityTypeConfiguration<PollVote>
 
     public ulong VoterId { get; set; }
 
-    public PollOption Option { get; set; }
+    public PollOption Option { get; set; } = null!;
 
     public void Configure(EntityTypeBuilder<PollVote> builder)
     {

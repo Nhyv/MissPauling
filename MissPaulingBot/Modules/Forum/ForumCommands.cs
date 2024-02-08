@@ -12,32 +12,20 @@ using Qmmands;
 
 namespace MissPaulingBot.Modules.Forum;
 
-public class ForumCommands : DiscordApplicationGuildModuleBase
+public class ForumCommands(ForumService forumService) : DiscordApplicationGuildModuleBase
 {
-    private readonly ForumService _forumService;
-
-    public ForumCommands(ForumService forumService)
-    {
-        _forumService = forumService;
-    }
-
     [SlashCommand("close")]
     [Description("Closes a forum post")]
     public async Task<IResult> CloseForumPostAsync()
     {
-        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId) as IThreadChannel;
+        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId) as IThreadChannel ??
+                     await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel;
 
-        if (thread is null)
-        {
-            thread = await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel;
-        }
-
-        var updatedTags = thread.TagIds.Append(thread.ChannelId == Constants.SUGGESTION_FEEDBACK_FORUM_ID ? (Snowflake)Constants.RESOLVED_SUGGESTION_TAG_ID : Constants.RESOLVED_HELP_TAG_ID).Distinct();
 
         if (thread.CreatorId == Context.AuthorId)
         {
             var view = new PromptView(x =>
-                (x as LocalInteractionMessageResponse)
+                (x as LocalInteractionMessageResponse)?
                 .WithContent(
                     "Are you sure you really wish to close this thread? You will no longer be able to receive replies in it.")
                 .WithIsEphemeral());
@@ -45,12 +33,15 @@ public class ForumCommands : DiscordApplicationGuildModuleBase
             await View(view);
 
             if (!view.Result)
-                return default;
+                return default!;
 
+            var updatedTags = thread!.TagIds.Append(Constants.RESOLVED_HELP_TAG_ID).Distinct().ToList();
+            updatedTags.Remove(updatedTags.First(x => x.RawValue == Constants.OPEN_HELP_TAG_ID));
+                
             await thread.SendMessageAsync(new LocalMessage().WithContent("Closed by the OP."));
             await thread.ModifyAsync(x => x.TagIds = updatedTags.ToList());
-            await _forumService.CloseThreadAsync(thread);
-            return default;
+            await forumService.CloseThreadAsync(thread);
+            return default!;
         }
 
         if (Context.Author.RoleIds.Contains(Constants.MODERATOR_ROLE_ID))
@@ -61,7 +52,7 @@ public class ForumCommands : DiscordApplicationGuildModuleBase
                     .WithPlaceholder("Reason for closing the forum post...")
                     .WithMaximumInputLength(1500)));
             await Context.Interaction.Response().SendModalAsync(modal);
-            return default;
+            return default!;
         }
 
         return Response("This command may only be used by moderators or the OP.").AsEphemeral();

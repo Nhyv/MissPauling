@@ -4,7 +4,10 @@ using Disqord;
 using Disqord.Bot.Hosting;
 using Disqord.Gateway;
 using Disqord.Rest;
+using Microsoft.Extensions.DependencyInjection;
 using MissPaulingBot.Common;
+using MissPaulingBot.Common.Models;
+using MissPaulingBot.Extensions;
 
 namespace MissPaulingBot.Services;
 
@@ -12,14 +15,30 @@ public class PremiumService : DiscordBotService
 {
     protected override async ValueTask OnMemberUpdated(MemberUpdatedEventArgs e)
     {
-        if (!e.NewMember.RoleIds.Contains(Constants.PREMIUM_MEMBER_ROLE_ID) || e.OldMember is null)
+        if (!e.HasUpdatedRoles(out var removedRoleIds, out var addedRoleIds))
             return;
 
-        if (!e.OldMember.RoleIds.Contains(Constants.PREMIUM_MEMBER_ROLE_ID) && e.NewMember.RoleIds.Contains(Constants.PREMIUM_MEMBER_ROLE_ID))
-        {
-            var message = $"<@{e.MemberId}> has subscribed to TF2 Community Premium! Welcome!";
+        var scope = Bot.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
 
-            if (e.NewMember.RoleIds.Contains(Constants.SAXTON_OWN_ROLE_ID))
+        // If they had saxton's own but now they don't no more
+        if (removedRoleIds.Contains(Constants.SAXTON_OWN_ROLE_ID))
+        {
+            if (db.SaxtonOwnRoles.FirstOrDefault(x => x.OwnerId == e.MemberId.RawValue) is { } saxtonOwnRole)
+            {
+                await Bot.DeleteRoleAsync(e.GuildId, saxtonOwnRole.Id);
+                db.SaxtonOwnRoles.Remove(saxtonOwnRole);
+                await db.SaveChangesAsync();
+                return;
+            }
+        }
+        
+        // If they are a new premium member.
+        if (addedRoleIds.Contains(Constants.PREMIUM_MEMBER_ROLE_ID))
+        {
+            var message = $"{Mention.User(e.NewMember)} has subscribed to TF2 Community Premium! Welcome!";
+
+            if (addedRoleIds.Contains(Constants.SAXTON_OWN_ROLE_ID))
             {
                 message +=
                     " Since you have selected the $10 subscription 'Saxton's Own', you may receive a role with a custom name, color, and icon." +

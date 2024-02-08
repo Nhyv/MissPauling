@@ -11,11 +11,11 @@ public class PollOption : IEntityTypeConfiguration<PollOption>
 
     public int PollId { get; set; }
 
-    public string Content { get; set; }
+    public string Content { get; set; } = null!;
 
-    public Poll Poll { get; set; }
+    public Poll Poll { get; set; } = null!;
 
-    public List<PollVote> Votes { get; set; }
+    public List<PollVote> Votes { get; set; } = null!;
 
     public void Configure(EntityTypeBuilder<PollOption> builder)
     {

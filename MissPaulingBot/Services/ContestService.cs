@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -36,7 +37,6 @@ public sealed class ContestService : DiscordBotService
 
             var contests = await db.Contests.ToListAsync(stoppingToken);
             var wait = true;
-            var count = 0;
 
             foreach (var contest in contests.Where(x => x.State == ContestState.Voting))
             {
@@ -58,7 +58,7 @@ public sealed class ContestService : DiscordBotService
                             cancellationToken: stoppingToken) as IUserMessage;
                         await message!.ModifyAsync(x =>
                         {
-                            x.Content = new Optional<string>(null);
+                            x.Content = new Optional<string?>(null);
                             x.Components = new[]
                             {
                                 LocalComponent.Row(LocalComponent
@@ -119,7 +119,7 @@ public sealed class ContestService : DiscordBotService
                                 1 => "🥇 1st place!!!!",
                                 2 => "🥈 2nd place!!!",
                                 3 => "🥉 3rd place!!",
-                                _ => $"{place.Ordinalize()} place!"
+                                _ => $"{place.Ordinalize(CultureInfo.CreateSpecificCulture("en-US"))} place!"
                             }).AppendNewLine(Mention.User(submission.CreatorId));
                             x.Content = builder.ToString();
                             x.Components = new List<LocalRowComponent>();

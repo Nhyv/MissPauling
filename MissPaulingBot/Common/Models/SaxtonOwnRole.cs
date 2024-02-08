@@ -11,13 +11,13 @@ public class SaxtonOwnRole : IEntityTypeConfiguration<SaxtonOwnRole>
 
     public ulong Id { get; set; }
 
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     public int? Color { get; set; }
 
-    public string Extension { get; set; }
+    public string Extension { get; set; } = null!;
 
-    public MemoryStream Data { get; set; }
+    public MemoryStream Data { get; set; } = null!;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

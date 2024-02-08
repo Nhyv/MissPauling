@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Net.Http;
+using System.Reflection.Metadata;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot.Commands;
@@ -17,38 +18,28 @@ namespace MissPaulingBot.Modules.Premium;
 
 [SlashGroup("premium")]
 [RequireChannel(Constants.PREMIUM_CHANNEL_ID)]
-public class PremiumCommands : DiscordApplicationGuildModuleBase
+public class PremiumCommands(PaulingDbContext db, HttpClient http) : DiscordApplicationGuildModuleBase
 {
-    private readonly PaulingDbContext _db;
-    private readonly HttpClient _http;
-
-    public PremiumCommands(PaulingDbContext db, HttpClient http)
-    {
-        _db = db;
-        _http = http;
-    }
-
     [SlashCommand("role")]
     [Description("Create/Update Saxton's Own custom role")]
     [RequireAuthorRole(Constants.SAXTON_OWN_ROLE_ID)]
-    public async Task<IResult> ManageRoleAsync([Description("Role name")]string? name = null, [Description("Role color")] Color? color = null, [Description("Role icon")][SupportedFileExtensions("png", "jpg", "jpeg", "webm")]IAttachment iconImage = null)
+    public async Task<IResult> ManageRoleAsync([Description("Role name")]string? name = null, [Description("Role color")] Color? color = null, [Description("Role icon")][SupportedFileExtensions("png", "jpg", "jpeg", "webm")]IAttachment? iconImage = null)
     {
         await Deferral();
 
-        if (name is null && color is null & iconImage is null)
+        if (name is null && color is null && iconImage is null)
             return Response("You cannot provide nothing.").AsEphemeral();
 
-        IRole role = null;
+        IRole? role;
         var deathMerchantRole = Bot.GetRole(Constants.TF2_GUILD_ID, Constants.DEATH_MERCHANT_ROLE_ID);
 
-        // If the user already has a Saxton's Own Custom Role.
-        if (await _db.SaxtonOwnRoles.FindAsync(Context.AuthorId.RawValue) is { } existingRole)
+        if (await db.SaxtonOwnRoles.FindAsync(Context.AuthorId.RawValue) is { } existingRole)
         {
             role = Bot.GetRole(Constants.TF2_GUILD_ID, existingRole.Id);
-            // If they provided an image.
+            
             if (iconImage != null)
             {
-                var data = await _http.GetMemoryStreamAsync(iconImage.Url);
+                var data = await http.GetMemoryStreamAsync(iconImage.Url);
 
                 existingRole.Data = data;
                 existingRole.Extension = Path.GetExtension(new Uri(iconImage.Url).AbsolutePath)[1..].ToLower();
@@ -74,7 +65,7 @@ public class PremiumCommands : DiscordApplicationGuildModuleBase
             if (iconImage != null)
             {
                 // Get the image 
-                var data = await _http.GetMemoryStreamAsync(iconImage.Url);
+                var data = await http.GetMemoryStreamAsync(iconImage.Url);
 
                 role = await Bot.CreateRoleAsync(Context.GuildId, x =>
                 {
@@ -82,13 +73,13 @@ public class PremiumCommands : DiscordApplicationGuildModuleBase
                     x.Color = color;
                     x.Icon = data;
                 });
-                await role.ModifyAsync(x => x.Position = deathMerchantRole.Position + 2);
+                await role.ModifyAsync(x => x.Position = deathMerchantRole!.Position + 2);
 
-                _db.SaxtonOwnRoles.Add(new SaxtonOwnRole
+                db.SaxtonOwnRoles.Add(new SaxtonOwnRole
                 {
                     Id = role.Id.RawValue,
                     OwnerId = Context.AuthorId.RawValue,
-                    Name = name,
+                    Name = name!,
                     Color = color,
                     Data = data,
                     Extension = Path.GetExtension(new Uri(iconImage.Url).AbsolutePath)[1..].ToLower()
@@ -102,12 +93,12 @@ public class PremiumCommands : DiscordApplicationGuildModuleBase
                     x.Color = color;
                 });
 
-                await role.ModifyAsync(x => x.Position = deathMerchantRole.Position + 1);
+                await role.ModifyAsync(x => x.Position = deathMerchantRole!.Position + 1);
 
-                _db.SaxtonOwnRoles.Add(new SaxtonOwnRole
+                db.SaxtonOwnRoles.Add(new SaxtonOwnRole
                 {
                     Id = role.Id.RawValue,
-                    Name = name,
+                    Name = name!,
                     Color = color,
                     OwnerId = Context.AuthorId.RawValue
                 });
@@ -116,7 +107,7 @@ public class PremiumCommands : DiscordApplicationGuildModuleBase
             await Bot.GrantRoleAsync(Context.GuildId, Context.AuthorId, role.Id);
         }
 
-        await _db.SaveChangesAsync();
-        return Response($"You have created or updated your role {role.Name}");
+        await db.SaveChangesAsync();
+        return Response($"You have created or updated your role {role!.Name}");
     }
 }

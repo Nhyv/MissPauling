@@ -8,6 +8,7 @@ using Disqord.Gateway;
 using Disqord.Rest;
 using Microsoft.Extensions.Logging;
 using MissPaulingBot.Common;
+using Serilog;
 
 namespace MissPaulingBot.Services;
 
@@ -17,62 +18,71 @@ public class ForumService : DiscordBotService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var posts = await Bot.FetchActiveThreadsAsync(Constants.TF2_GUILD_ID);
-
-            foreach (var post in posts.Where(x => x.ChannelId == Constants.HELP_ADVICE_FORUM_ID))
+            try
             {
-                if (post.Metadata.IsArchived)
+                var posts = await Bot.FetchActiveThreadsAsync(Constants.TF2_GUILD_ID, cancellationToken: stoppingToken);
+
+                foreach (var post in posts.Where(x => x.ChannelId == Constants.HELP_ADVICE_FORUM_ID))
                 {
-                    continue;
-                }
-
-                if (!post.LastMessageId.HasValue)
-                {
-                    continue;
-                }
-
-                IMessage message;
-
-                try
-                { 
-                    message = Bot.GetMessage(post.Id, post.LastMessageId.Value) ??
-                            await post.FetchMessageAsync(post.LastMessageId.Value);
-
-                    var lastFive = await Bot.FetchMessagesAsync(post.Id, 5);
-
-                    if (lastFive.Any(x => x.Author.IsBot))
+                    if (post.Metadata.IsArchived)
+                    {
                         continue;
-                }
-                catch (Exception e)
-                {
-                    Logger.LogWarning(e, "Could not fetch ForumService message");
-                    continue;
-                }
-                
+                    }
 
-                if (message is null)
-                {
-                    continue;
-                }
+                    if (!post.LastMessageId.HasValue)
+                    {
+                        continue;
+                    }
 
-                if (message.Author.IsBot)
-                {
-                    continue;
-                }
+                    IMessage? message;
 
-                if (DateTimeOffset.UtcNow - message.CreatedAt() < TimeSpan.FromHours(12))
-                {
-                    continue;
-                }
+                    try
+                    {
+                        message = Bot.GetMessage(post.Id, post.LastMessageId.Value) ??
+                                  await post.FetchMessageAsync(post.LastMessageId.Value,
+                                      cancellationToken: stoppingToken);
 
-                await post.SendMessageAsync(new LocalMessage()
-                        .WithContent(
-                            $"Reminder: {Mention.User(post.CreatorId)} Please make sure to close your post once you have received your answer or found the solution. Make sure to include the solution so others can also see it and use it. You can also select the solution message, go to Apps > Mark As Solution.")
-                        .WithAllowedMentions(new LocalAllowedMentions().WithUserIds(post.CreatorId)));
-                Logger.LogInformation("Message sent for post {PostId}!", post.Id.RawValue);
+                        var lastFive = await Bot.FetchMessagesAsync(post.Id, 5, cancellationToken: stoppingToken);
+
+                        if (lastFive.Any(x => x.Author.IsBot))
+                            continue;
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning(e, "Could not fetch ForumService message");
+                        continue;
+                    }
+
+
+                    if (message is null)
+                    {
+                        continue;
+                    }
+
+                    if (message.Author.IsBot)
+                    {
+                        continue;
+                    }
+
+                    if (DateTimeOffset.UtcNow - message.CreatedAt() < TimeSpan.FromHours(12))
+                    {
+                        continue;
+                    }
+
+                    await post.SendMessageAsync(new LocalMessage()
+                            .WithContent(
+                                $"Reminder: {Mention.User(post.CreatorId)} Please make sure to close your post once you have received your answer or found the solution. Make sure to include the solution so others can also see it and use it. You can also select the solution message, go to Apps > Mark As Solution.")
+                            .WithAllowedMentions(new LocalAllowedMentions().WithUserIds(post.CreatorId)),
+                        cancellationToken: stoppingToken);
+                    Logger.LogInformation("Message sent for post {PostId}!", post.Id.RawValue);
+                }
             }
-
-            await Task.Delay(TimeSpan.FromSeconds(30));
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "The forum has booboo'd");
+            }
+            
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
     }
 
@@ -93,6 +103,7 @@ public class ForumService : DiscordBotService
 
         if (e.Thread.ChannelId == Constants.HELP_ADVICE_FORUM_ID)
         {
+            await e.Thread.ModifyAsync(x => x.TagIds = e.Thread.TagIds.Append(Constants.OPEN_HELP_TAG_ID).ToList());
             await Bot.SendMessageAsync(e.ThreadId,
                 new LocalMessage().WithAllowedMentions(new LocalAllowedMentions().WithUserIds(e.Thread.CreatorId))
                     .WithContent(
@@ -118,5 +129,5 @@ public class ForumService : DiscordBotService
         });
 
         // await thread.ModifyAsync(x => x.IsArchived = true);
-    }
+    } 
 }

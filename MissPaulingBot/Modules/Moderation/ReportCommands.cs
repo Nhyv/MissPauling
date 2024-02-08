@@ -41,7 +41,7 @@ public class ReportCommands : DiscordApplicationGuildModuleBase
                     "Enter your report reason here. Please put a lot of details so that we can work on it efficiently.").WithMaximumInputLength(1500).WithCustomId("reason")));
 
         await Context.Interaction.Response().SendModalAsync(modal);
-        return default;
+        return default!;
     }
 
     [UserCommand("Report User")]
@@ -62,7 +62,7 @@ public class ReportCommands : DiscordApplicationGuildModuleBase
                     "Enter a report reason. Use modmail for scammer and more complex reports.").WithMaximumInputLength(1500).WithCustomId("reason")));
 
         await Context.Interaction.Response().SendModalAsync(modal);
-        return default;
+        return default!;
     }
     
 }

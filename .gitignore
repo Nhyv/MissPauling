@@ -403,3 +403,6 @@ Data/
 .dockerignore
 Dockerfile
 publish.ps1
+MissPaulingBot/Common/HungerGameMatch.cs
+MissPaulingBot/Services/GenshinService.cs
+MissPaulingBot/Common/HungerGameMatch.cs

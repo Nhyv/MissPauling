@@ -23,29 +23,24 @@ namespace MissPaulingBot.Modules.Suggestions;
 
 [Description("Suggestion commands for #server-meta")]
 [SlashGroup("suggestion")]
-public class SuggestionCommands : DiscordApplicationGuildModuleBase
+public class SuggestionCommands(PaulingDbContext db, HttpClient http) : DiscordApplicationGuildModuleBase
 {
-    private readonly PaulingDbContext _db;
-    private readonly HttpClient _http;
-
-    public SuggestionCommands(PaulingDbContext db, HttpClient http)
-    {
-        _db = db;
-        _http = http;
-    }
     [SlashCommand("create")]
     [Description("Create a suggestion for the Discord.")]
     [RequireChannel(Constants.SERVER_META_CHANNEL_ID)]
     public async Task<IResult> CreateSuggestion([Description("Your suggestion message")] string content,
         [Description("Image for the suggestion")] [SupportedFileExtensions("png", "jpg", "jpeg", "gif", "gifv", "webm")]
-        IAttachment attachment = null)
+        IAttachment? attachment = null)
     {
         var bulliedRole = Bot.GetRole(Constants.TF2_GUILD_ID, Constants.CONTRACT_KILLER_ROLE_ID);
 
-        if (Context.Author.RoleIds.Contains(Constants.SUGGESTION_BANNED_ROLE_ID) || Context.Author.RoleIds.Contains(Constants.CONTRACT_KILLER_ROLE_ID))
-            return Response($"You cannot create suggestions if you are suggestion banned or have the role **{bulliedRole.Name}**.").AsEphemeral();
+        if (Context.Author.RoleIds.Contains(Constants.SUGGESTION_BANNED_ROLE_ID) ||
+            Context.Author.RoleIds.Contains(Constants.CONTRACT_KILLER_ROLE_ID))
+            return Response(
+                    $"You cannot create suggestions if you are suggestion banned or have the role **{bulliedRole!.Name}**.")
+                .AsEphemeral();
 
-        Suggestion suggestion = null;
+        Suggestion? suggestion;
 
         var embed = EmbedUtilities.SuccessBuilder.WithAuthor(Context.Author).WithDescription(content);
         var message = new LocalMessage();
@@ -53,11 +48,11 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
         if (attachment != null)
         {
             var data = new MemoryStream();
-            await using var stream = await _http.GetStreamAsync(attachment.Url);
+            await using var stream = await http.GetStreamAsync(attachment.Url);
             await stream.CopyToAsync(data);
             data.Seek(0, SeekOrigin.Begin);
 
-            suggestion = _db.Suggestions.Add(new Suggestion()
+            suggestion = db.Suggestions.Add(new Suggestion()
             {
                 AuthorId = Context.AuthorId.RawValue,
                 Content = content,
@@ -65,19 +60,20 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
                 Extension = Path.GetExtension(new Uri(attachment.Url).AbsolutePath)[1..].ToLower()
             }).Entity;
 
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
             data.Seek(0, SeekOrigin.Begin);
             message.AddAttachment(new LocalAttachment(data, $"suggestion_{suggestion.Id}.{suggestion.Extension}"));
+            
             embed.WithImageUrl($"attachment://suggestion_{suggestion.Id}.{suggestion.Extension}");
         }
         else
         {
-            suggestion = _db.Suggestions.Add(new Suggestion()
+            suggestion = db.Suggestions.Add(new Suggestion()
             {
                 AuthorId = Context.AuthorId.RawValue,
                 Content = content
             }).Entity;
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
         }
 
         embed.WithFooter($"Suggestion ID: {suggestion.Id} • {suggestion.CreatedAt:g}");
@@ -92,7 +88,7 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
 
 
         suggestion.MessageId = suggestionMessage.Id;
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
 
         return Response($"Suggestion #{suggestion.Id} created.").AsEphemeral();
     }
@@ -103,27 +99,27 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
     public async Task<IResult> RemoveSuggestion([Description("The suggestion to remove.")] int suggestionChoice)
     {
         var view = new PromptView(x =>
-            (x as LocalInteractionMessageResponse)
+            (x as LocalInteractionMessageResponse)?
             .WithContent("Are you sure you wish to delete this suggestion? This action cannot be undone.")
             .WithIsEphemeral());
 
         await View(view);
 
         if (!view.Result)
-            return default;
+            return default!;
 
-        var suggestion = await _db.Suggestions.FindAsync(suggestionChoice);
-        _db.Suggestions.Remove(suggestion);
-        await _db.SaveChangesAsync();
+        var suggestion = await db.Suggestions.FindAsync(suggestionChoice);
+        db.Suggestions.Remove(suggestion!);
+        await db.SaveChangesAsync();
 
         try
         {
-            var toDelete = await Bot.FetchMessageAsync(Constants.SUGGESTIONS_CHANNEL_ID, suggestion.MessageId);
-            await toDelete.DeleteAsync();
+            var toDelete = await Bot.FetchMessageAsync(Constants.SUGGESTIONS_CHANNEL_ID, suggestion!.MessageId);
+            await toDelete!.DeleteAsync();
         }
         catch
         {
-            Logger.LogWarning($"Could not remove suggestion message for {suggestion.Id}");
+            Logger.LogWarning($"Could not remove suggestion message for {suggestion!.Id}");
         }
 
         return Response($"Suggestion {suggestion.Id} removed.");
@@ -133,15 +129,16 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
     [RequireAuthorRole(Constants.MODERATOR_ROLE_ID)]
     public async Task<IResult> ApproveSuggestionAsync([Description("The suggestion to approve")] int suggestionChoice, [Description("Approval reason")] string reason = "")
     {
-        var suggestion = await _db.Suggestions.FindAsync(suggestionChoice);
-        var author = await Context.Bot.FetchUserAsync(suggestion.AuthorId);
+        await Deferral();
+        var suggestion = await db.Suggestions.FindAsync(suggestionChoice);
+        var author = await Context.Bot.FetchUserAsync(suggestion!.AuthorId);
 
         try
         {
             var message = await Bot.FetchMessageAsync(Constants.SUGGESTIONS_CHANNEL_ID, suggestion.MessageId);
-            Logger.LogInformation($"Suggestion Message ID: {message.Id}");
+            Logger.LogInformation($"Suggestion Message ID: {message!.Id}");
             await message.DeleteAsync();
-            var dm = await author.CreateDirectChannelAsync();
+            var dm = await author!.CreateDirectChannelAsync();
 
             await dm.SendMessageAsync(
                 new LocalMessage().WithContent($"Your suggestion '{suggestion.Content.Truncate(50)}' has been approved."));
@@ -152,10 +149,10 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
         }
 
         suggestion.IsCompleted = true;
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
         var toSend = new LocalMessage();
         var embed = EmbedUtilities.SuccessBuilder.WithTitle(
-                $"Suggestion #{suggestionChoice} by {author.Tag} was approved with {suggestion.UpvoteUsers.Count} upvote(s) and {suggestion.DownvoteUsers.Count} downvote(s).")
+                $"Suggestion #{suggestionChoice} by {author!.Tag} was approved with {suggestion.UpvoteUsers.Count} upvote(s) and {suggestion.DownvoteUsers.Count} downvote(s).")
             .WithDescription(suggestion.Content)
             .WithImageUrl($"attachment://suggestion_{suggestion.Id}.{suggestion.Extension}")
             .AddField("Suggestion created at:", Markdown.Timestamp(suggestion.CreatedAt))
@@ -179,16 +176,17 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
     [RequireAuthorRole(Constants.MODERATOR_ROLE_ID)]
     public async Task<IResult> DenySuggestionAsync([Description("The suggestion to deny")] int suggestionChoice, [Description("The deny reason")] string reason)
     {
-        var suggestion = await _db.Suggestions.FindAsync(suggestionChoice);
-        var author = await Context.Bot.FetchUserAsync(suggestion.AuthorId);
+        await Deferral();
+        var suggestion = await db.Suggestions.FindAsync(suggestionChoice);
+        var author = await Context.Bot.FetchUserAsync(suggestion!.AuthorId);
 
         try
         {
             var message = await Bot.FetchMessageAsync(Constants.SUGGESTIONS_CHANNEL_ID, suggestion.MessageId);
-            Logger.LogInformation($"Suggestion Message ID: {message.Id}");
+            Logger.LogInformation($"Suggestion Message ID: {message!.Id}");
             await message.DeleteAsync();
 
-            var dm = await author.CreateDirectChannelAsync();
+            var dm = await author!.CreateDirectChannelAsync();
 
             await dm.SendMessageAsync(
                 new LocalMessage().WithContent($"Your suggestion '{suggestion.Content.Truncate(50)}' has been denied. Check the archive channel for details."));
@@ -199,10 +197,10 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
         }
 
         suggestion.IsCompleted = true;
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
         var toSend = new LocalMessage();
         var embed = EmbedUtilities.ErrorBuilder.WithTitle(
-                $"Suggestion #{suggestionChoice} by {author.Tag} was denied with {suggestion.UpvoteUsers.Count} upvote(s) and {suggestion.DownvoteUsers.Count} downvote(s).")
+                $"Suggestion #{suggestionChoice} by {author!.Tag} was denied with {suggestion.UpvoteUsers.Count} upvote(s) and {suggestion.DownvoteUsers.Count} downvote(s).")
             .WithDescription(suggestion.Content)
             .WithImageUrl($"attachment://suggestion_{suggestion.Id}.{suggestion.Extension}")
             .AddField("Suggestion created at:", Markdown.Timestamp(suggestion.CreatedAt))
@@ -222,9 +220,9 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
     [RequireAuthorRole(Constants.MODERATOR_ROLE_ID)]
     public async Task<IResult> ViewSuggestionStatusAsync([Description("The suggestion to view")] int suggestionChoice)
     {
-        var suggestion = await _db.Suggestions.FindAsync(suggestionChoice);
-        var author = await Bot.FetchUserAsync(suggestion.AuthorId);
-        var embed = EmbedUtilities.SuccessBuilder.WithTitle($"Suggestion {suggestion.Id} by {author.Tag} ({author.Id})")
+        var suggestion = await db.Suggestions.FindAsync(suggestionChoice);
+        var author = await Bot.FetchUserAsync(suggestion!.AuthorId);
+        var embed = EmbedUtilities.SuccessBuilder.WithTitle($"Suggestion {suggestion.Id} by {author!.Tag} ({author.Id})")
             .WithDescription(suggestion.Content).AddField("Upvotes:", suggestion.UpvoteUsers.Count, true)
             .AddField("Downvotes:", suggestion.DownvoteUsers.Count, true);
 
@@ -241,10 +239,10 @@ public class SuggestionCommands : DiscordApplicationGuildModuleBase
         List<Suggestion> suggestions;
 
         if (Context.Author.RoleIds.Contains(Constants.MODERATOR_ROLE_ID))
-            suggestions = await _db.Suggestions.Where(x => !x.IsCompleted).ToListAsync();
+            suggestions = await db.Suggestions.Where(x => !x.IsCompleted).ToListAsync();
         else
-            suggestions = await _db.Suggestions.Where(x => x.AuthorId == Context.AuthorId.RawValue && !x.IsCompleted).ToListAsync();
+            suggestions = await db.Suggestions.Where(x => x.AuthorId == Context.AuthorId.RawValue && !x.IsCompleted).ToListAsync();
 
-        suggestionChoice.Choices.AddRange(suggestions.Take(25).ToDictionary(x => $"#{x.Id} - {x.Content.TrimTo(Discord.Limits.ApplicationCommand.Option.Choice.MaxNameLength - 25)}", x => x.Id));
+        suggestionChoice.Choices?.AddRange(suggestions.Take(25).ToDictionary(x => $"#{x.Id} - {x.Content.TrimTo(Discord.Limits.ApplicationCommand.Option.Choice.MaxNameLength - 25)}", x => x.Id));
     }
 }

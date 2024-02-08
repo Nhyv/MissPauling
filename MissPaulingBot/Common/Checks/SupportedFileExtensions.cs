@@ -18,16 +18,16 @@ public class SupportedFileExtensions : DiscordParameterCheckAttribute
         AllowedExtensions = allowedExtensions;
     }
 
-    public string[] AllowedExtensions { get; }
+    private string[] AllowedExtensions { get; }
 
-    public override bool CanCheck(IParameter parameter, object value)
+    public override bool CanCheck(IParameter parameter, object? value)
     {
         return value is IAttachment;
     }
 
-    public override ValueTask<IResult> CheckAsync(IDiscordCommandContext context, IParameter parameter, object argument)
+    public override ValueTask<IResult> CheckAsync(IDiscordCommandContext context, IParameter parameter, object? argument)
     {
-        var attachment = (IAttachment)argument;
+        var attachment = (IAttachment)argument!;
 
         var uri = new Uri(attachment.Url);
 

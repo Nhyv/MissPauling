@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MissPaulingBot.Common;
 using MissPaulingBot.Common.Models;
+using MissPaulingBot.Extensions;
 
 namespace MissPaulingBot.Services;
 
@@ -43,16 +44,15 @@ public class StickyService : DiscordBotService
         var stickyRoles = await db.StickyRoles.Include(x => x.StickyUsers).ToListAsync();
 
         // If the member lost roles during that update.
-        if (e.OldMember.RoleIds.Count >= e.NewMember.RoleIds.Count)
+        if (e.HasUpdatedRoles(out var removedRoleIds, out var addedRoleIds))
         {
             foreach (var stickyRole in stickyRoles) 
             {
                 // If the sticky role was removed from them.
-                if (e.OldMember.RoleIds.Contains(stickyRole.RoleId) && !e.NewMember.RoleIds.Contains(stickyRole.RoleId))
+                if (removedRoleIds.Contains(stickyRole.RoleId))
                 {
                     var stickyUser = await db.StickyUsers.FindAsync(e.NewMember.Id.RawValue);
-                    stickyRole.StickyUsers.Remove(stickyUser);
-                    // Remove the sticky user from the list.
+                    stickyRole.StickyUsers.Remove(stickyUser!);
                     Logger.LogInformation($"User {e.NewMember.Id} was removed from the {stickyRole.RoleName} sticky list.");
                 }
             }
@@ -64,7 +64,7 @@ public class StickyService : DiscordBotService
             foreach (var stickyRole in stickyRoles)
             {
                 // If they were added to it.
-                if (!e.OldMember!.RoleIds.Contains(stickyRole.RoleId) && e.NewMember.RoleIds.Contains(stickyRole.RoleId))
+                if (addedRoleIds.Contains(stickyRole.RoleId))
                 {
                     // If they are already a sticky user
                     if (await db.StickyUsers.Include(x => x.StickyRoles).FirstOrDefaultAsync(x => x.UserId == e.NewMember.Id.RawValue) is { } existingStickyUser)

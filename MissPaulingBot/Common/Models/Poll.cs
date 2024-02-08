@@ -16,9 +16,9 @@ public class Poll : IEntityTypeConfiguration<Poll>
 {
     public int Id { get; set; }
 
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
-    public string Content { get; set; }
+    public string Content { get; set; } = null!;
 
     public ulong ChannelId { get; set; }
 
@@ -30,7 +30,7 @@ public class Poll : IEntityTypeConfiguration<Poll>
 
     public bool DisplayVotesPublicly { get; set; }
 
-    public List<PollOption> Options { get; set; }
+    public List<PollOption> Options { get; set; } = null!;
 
     public PollState State
     {

@@ -2,10 +2,7 @@
 using Disqord;
 using Disqord.Extensions.Interactivity.Menus;
 using Disqord.Rest;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
-using Microsoft.Extensions.DependencyInjection;
 using MissPaulingBot.Common.Models;
-using MissPaulingBot.Extensions;
 using MissPaulingBot.Utilities;
 
 namespace MissPaulingBot.Common.Menus.Views.Applications;
@@ -44,16 +41,16 @@ public abstract class ModAppViewBase : ViewBase
         AddComponent(_nextQuestionButton);
     }
 
-    public new ModAppMenu Menu => (ModAppMenu)base.Menu;
+    protected new ModAppMenu Menu => (ModAppMenu)base.Menu;
 
-    public ModApplication App => Menu.App;
+    protected ModApplication App => Menu.App;
 
-    public abstract void FormatLocalEmbed(LocalEmbed embed);
+    protected abstract void FormatLocalEmbed(LocalEmbed embed);
 
-    public ValueTask PreviousQuestionAsync(ButtonEventArgs e)
+    private ValueTask PreviousQuestionAsync(ButtonEventArgs e)
         => Menu.SetViewAsync(--Menu.CurrentIndex);
 
-    public async ValueTask SaveAndExitAsync(ButtonEventArgs e)
+    private async ValueTask SaveAndExitAsync(ButtonEventArgs e)
     {
         ClearComponents();
         await Menu.ApplyChangesAsync(e);
@@ -85,14 +82,14 @@ public abstract class ModAppViewBase : ViewBase
         await Menu.SaveChangesAsync();
         Menu.Stop();
 
-        await Menu.Client.SendMessageAsync(Constants.MODAPPS_CHANNEL_ID, new LocalMessage().WithContent($"User **{e.Member.Tag}** (`{e.AuthorId}`) has applied! Please use {Mention.SlashCommand(1107741102796177418, "modapps view")}"));
+        await Menu.Client.SendMessageAsync(Constants.MODAPPS_CHANNEL_ID, new LocalMessage().WithContent($"User **{e.Member!.Tag}** (`{e.AuthorId}`) has applied! Please use {Mention.SlashCommand(1107741102796177418, "modapps view")}"));
         await e.Interaction.Followup().SendAsync(
             new LocalInteractionMessageResponse()
                 .WithContent("Your moderator application has been submitted and is pending review!")
                 .WithIsEphemeral());
     }
 
-    public ValueTask NextQuestionAsync(ButtonEventArgs e)
+    private ValueTask NextQuestionAsync(ButtonEventArgs e)
         => Menu.SetViewAsync(++Menu.CurrentIndex);
 
     public override ValueTask UpdateAsync()

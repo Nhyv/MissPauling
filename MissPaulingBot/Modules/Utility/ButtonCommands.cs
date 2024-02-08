@@ -8,6 +8,9 @@ using Disqord.Extensions.Interactivity;
 using Disqord.Extensions.Interactivity.Menus.Prompt;
 using Disqord.Gateway;
 using Disqord.Rest;
+using Disqord.Webhook;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using MissPaulingBot.Common;
 using MissPaulingBot.Common.Menus.Views;
 using MissPaulingBot.Common.Models;
@@ -15,37 +18,44 @@ using MissPaulingBot.Extensions;
 using MissPaulingBot.Services;
 using MissPaulingBot.Utilities;
 using Qmmands;
+using LocalRowComponent = Disqord.LocalRowComponent;
 
 namespace MissPaulingBot.Modules.Utility;
 
-public class ButtonCommands : DiscordComponentGuildModuleBase
+public class ButtonCommands(PaulingDbContext db, ModmailService modmailService, ForumService forumService, IWebhookClientFactory factory, IConfiguration config)
+    : DiscordComponentGuildModuleBase
 {
-    private readonly PaulingDbContext _db;
-    private readonly ModmailService _modmailService;
-    private readonly ForumService _forumService;
-
-    public ButtonCommands(PaulingDbContext db, ModmailService modmailService, ForumService forumService)
+    private Dictionary<string, string> ModmailDetectionResponses = new()
     {
-        _db = db;
-        _modmailService = modmailService;
-        _forumService = forumService;
-    }
-
+        {
+            "art",
+            "We have detected that your modmail has a question about the artist role or the art channel. If you need to apply for the artist role," +
+            " use the command `/artist apply` with your art. If you are certain this is not what your modmail is about, you may click Confirm."
+        },
+        {
+            "bot",
+            "We have detected that your modmail inquiry may be about bots. We want to make sure you are aware we are not part of the Valve Team in any way and we cannot help you with ANY TF2 issues. If your modmail is relevant to our Discord, you may press Confirm." 
+        }
+    };
+    
+    
     [ButtonCommand("VerificationButton_758829640885862431")]
     public async Task<IResult> VerifyAsync()
     {
-        if (_db.ModmailVerifications.Find(Context.AuthorId.RawValue) is { } existingVerification)
+        if (await db.VerificationEntries.FirstOrDefaultAsync(x => x.UserId == Context.AuthorId.RawValue) is not null)
             return Response("Your verification is still pending. Please wait.").AsEphemeral();
 
-        if (DateTimeOffset.UtcNow - Context.Author.CreatedAt() > TimeSpan.FromDays(14) && !Context.Author.RoleIds.Contains(Constants.CO_OWNER_ROLE_ID))
-        {
-            await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, Context.AuthorId, Constants.CONTRACT_KILLER_ROLE_ID);
-            return Response(
-                    "You have agreed to the rules, welcome! Please do note agreeing to the rules completely invalidates using 'I did not know' as an excuse.")
+        if (DateTimeOffset.UtcNow - Context.Author.CreatedAt() <= TimeSpan.FromDays(60))
+            return Response("Hello! Your account has been detected to be a new account by our automated systems.\n" +
+                            "As a counter-measure to deter raid bots, spam accounts, and punishment evasion, we have " +
+                            "prevented new accounts from accessing the server immediately.\n" +
+                            "Please verify using our verification system at: http://verify.tf2.community/")
                 .AsEphemeral();
-        }
-
-        return View(new FailedVerificationView(Context.Interaction as IComponentInteraction));
+        
+        await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, Context.AuthorId, Constants.CONTRACT_KILLER_ROLE_ID);
+        return Response(
+                "You have agreed to the rules, welcome! Please do note agreeing to the rules completely invalidates using 'I did not know' as an excuse.")
+            .AsEphemeral();
     }
 
     [ButtonCommand(TradingGuidelinesService.TRADING_GUIDELINES_BUTTON_CUSTOM_ID)]
@@ -63,10 +73,10 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     [ButtonCommand(ModmailService.CONTACT_BUTTON_CUSTOM_ID)]
     public async Task<IResult> ContactTheModsAsync()
     {
-        if (await _db.BlacklistedUsers.FindAsync(Context.AuthorId.RawValue) is not null)
+        if (await db.BlacklistedUsers.FindAsync(Context.AuthorId.RawValue) is not null)
             return Response("You could not contact the modteam because you were blacklisted.").AsEphemeral();
 
-        if (_modmailService.ActiveThreads.ContainsKey(Context.AuthorId))
+        if (modmailService.ActiveThreads.ContainsKey(Context.AuthorId))
             return Response("You cannot have 2 modmail threads open at once.").AsEphemeral();
 
         var modal = new LocalInteractionModalResponse().WithTitle("Modmail").WithCustomId("Modmail:Contact")
@@ -76,16 +86,32 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 .WithMinimumInputLength(50)
                 .WithMaximumInputLength(1500)));
         await Context.Interaction.Response().SendModalAsync(modal);
-        return default;
+        
+        return default!;
     }
 
     [ModalCommand("Modmail:Contact")]
     public async Task<IResult> ContactModmailAsync(string details)
     {
-        var contactChannel = (CachedTextChannel)Bot.GetChannel(Context.GuildId, Context.ChannelId);
+        foreach (var (detectionKey, detectionResponse) in ModmailDetectionResponses)
+        {
+            if (details.Contains(detectionKey, StringComparison.CurrentCultureIgnoreCase))
+            {
+                var view = new ConfirmView(x => (x as LocalInteractionMessageResponse).WithEmbeds(
+                    EmbedUtilities.SuccessBuilder.WithDescription(detectionResponse))
+                        .WithIsEphemeral());
+
+                await View(view);
+
+                if (!view.Result)
+                    return default;
+                break;
+            }
+        }
+        var contactChannel = (CachedTextChannel)Bot.GetChannel(Context.GuildId, Context.ChannelId)!;
         var createdThread = await Bot.CreatePrivateThreadAsync(contactChannel.Id, Guid.NewGuid().ToString("N"), x => x.AllowsInvitation = false);
 
-        _modmailService.ActiveThreads.Add(Context.AuthorId, createdThread);
+        modmailService.ActiveThreads.Add(Context.AuthorId, createdThread);
 
         await createdThread.SendMessageAsync(new LocalMessage()
             .WithContent(
@@ -106,7 +132,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 $"{createdThread.Mention} was created for your request. Use it to contact the moderation team.")
             .AsEphemeral();
     }
-
+    
     [ButtonCommand("Modmail:Close")]
     public async Task<IResult> CloseModmail()
     {
@@ -115,23 +141,21 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             return Response("You cannot delete newly created threads.").AsEphemeral();
         }
 
-        var thread = (IThreadChannel) Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId);
-
-        if (thread is null)
+        if (Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId) is not IThreadChannel thread)
         {
-            thread = await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel;
+            thread = (await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel)!;
         }
 
         await thread.SendMessageAsync(new LocalMessage().WithContent($"Closing per {Context.Author.Tag}'s request."));
 
         try
         {
-            _modmailService.ActiveThreads.Remove(_modmailService.ActiveThreads.First(x => x.Value.Id == thread.Id).Key);
+            modmailService.ActiveThreads.Remove(modmailService.ActiveThreads.First(x => x.Value.Id == thread.Id).Key);
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException)
         {
-            await _modmailService.ResetThreadDictionaryAsync();
-            _modmailService.ActiveThreads.Remove(_modmailService.ActiveThreads.First(x => x.Value.Id == thread.Id).Key);
+            await modmailService.ResetThreadDictionaryAsync();
+            modmailService.ActiveThreads.Remove(modmailService.ActiveThreads.First(x => x.Value.Id == thread.Id).Key);
         }
 
         var interaction = (IComponentInteraction)Context.Interaction;
@@ -143,7 +167,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             x.IsLocked = true;
         });
 
-        return default;
+        return default!;
     }
 
     [ButtonCommand("ArtistApplication:Approve:*")]
@@ -151,14 +175,14 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     {
         var member = await Bot.FetchMemberAsync(Constants.TF2_GUILD_ID, userId);
         var interaction = (IComponentInteraction)Context.Interaction;
-        var application = _db.ArtistApplications.Find(userId.RawValue);
+        var application = db.ArtistApplications.Find(userId.RawValue);
 
         if (member == null)
         {
             if (application != null)
             {
-                _db.Remove(application);
-                await _db.SaveChangesAsync();
+                db.Remove(application);
+                await db.SaveChangesAsync();
             }
 
             await interaction.Message.ModifyAsync(x =>
@@ -168,7 +192,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 x.Components = new List<LocalRowComponent>();
             });
 
-            return default;
+            return default!;
         }
 
         await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, userId, Constants.ARTIST_ROLE_ID);
@@ -180,15 +204,15 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             x.Components = new List<LocalRowComponent>();
         });
 
-        _db.Remove(application);
-        await _db.SaveChangesAsync();
+        db.Remove(application!);
+        await db.SaveChangesAsync();
 
         try
         {
             var dmChannel = await Bot.CreateDirectChannelAsync(userId);
             await dmChannel.SendMessageAsync(new LocalMessage().WithContent("You were granted the artist role."));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -196,19 +220,51 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         }
     }
 
+    /*[ModalCommand("Dm:Send:*")]
+    public async Task<IResult> DmSendAsync(Snowflake userId, string content)
+    {
+        if (content is null)
+            return Response("Content is required.").AsEphemeral();
+        
+        var user = Context.Bot.GetUser(userId);
+
+        var view = new DmPromptView(x =>
+            x.WithEmbeds(EmbedUtilities.SuccessBuilder.WithAuthor(Context.Bot.CurrentUser).WithDescription(content)
+                .WithFooter($"This message will be sent to {user.Tag}", user.GetAvatarUrl())), content);
+
+        await View(view);
+
+        if (view.Result)
+        {
+            try
+            {
+                var dm = await Context.Bot.CreateDirectChannelAsync(userId);
+                await dm.SendMessageAsync(new LocalMessage().WithContent(view.Content));
+            }
+            catch
+            {
+                return Response(
+                    "I could not DM this user. They either left the server, set their DMs to friends only, or blocked me.");
+            }
+        }
+        
+        return Response(EmbedUtilities.SuccessBuilder.WithAuthor(Context.Bot.CurrentUser).WithDescription(view.Content).WithFooter($"This message was sent to {user.Tag}", user.GetAvatarUrl()));
+    }*/
+
+    
     [ButtonCommand("ArtistApplication:Deny:*")]
     public async Task<IResult> DenyArtistApplication(Snowflake userId) // TODO: add denied user to database
     {
         var member = await Bot.FetchMemberAsync(Constants.TF2_GUILD_ID, userId);
         var interaction = (IComponentInteraction)Context.Interaction;
-        var application = _db.ArtistApplications.Find(userId.RawValue);
+        var application = db.ArtistApplications.Find(userId.RawValue);
 
         if (member == null)
         {
             if (application != null)
             {
-                _db.Remove(application);
-                await _db.SaveChangesAsync();
+                db.Remove(application);
+                await db.SaveChangesAsync();
             }
 
             await interaction.Message.ModifyAsync(x =>
@@ -218,7 +274,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 x.Components = new List<LocalRowComponent>();
             });
 
-            return default;
+            return default!;
         }
 
         await interaction.Message.ModifyAsync(x =>
@@ -234,7 +290,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             await dmChannel.SendMessageAsync(new LocalMessage().WithContent("Hello, your artist application has been denied for one or many of the following reasons:\n\n" +
             "- Shitposts application\n- Low quality\n- Stolen content"));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -247,14 +303,14 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     {
         var member = await Bot.FetchMemberAsync(Constants.TF2_GUILD_ID, userId);
         var interaction = (IComponentInteraction)Context.Interaction;
-        var application = _db.StreamerApplications.Find(userId.RawValue);
+        var application = db.StreamerApplications.Find(userId.RawValue);
 
         if (member == null)
         {
             if (application != null)
             {
-                _db.Remove(application);
-                await _db.SaveChangesAsync();
+                db.Remove(application);
+                await db.SaveChangesAsync();
             }
 
             await interaction.Message.ModifyAsync(x =>
@@ -264,7 +320,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 x.Components = new List<LocalRowComponent>();
             });
 
-            return default;
+            return default!;
         }
 
         await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, userId, Constants.STREAMER_ROLE_ID);
@@ -276,8 +332,8 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                         $"\nApproved by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
             x.Components = new List<LocalRowComponent>();
         });
-        _db.Remove(application);
-        await _db.SaveChangesAsync();
+        db.Remove(application!);
+        await db.SaveChangesAsync();
 
         try
         {
@@ -298,7 +354,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 " just for that.They are rarely full but if it ever gets to a point where both channels are constantly" +
                 " being used while you wish to stream, we will work something out.\n- No real life or realistic gore / NSFW content."));
 
-            return default;
+            return default!;
         }
         catch
         {
@@ -309,13 +365,13 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     [ButtonCommand("PollOption:*:*")]
     public async Task<IResult> VoteForPollOption(int pollId, int optionId)
     {
-        if (_db.PollVotes.FirstOrDefault(x => x.PollId == pollId && x.VoterId == Context.AuthorId.RawValue) is
+        if (db.PollVotes.FirstOrDefault(x => x.PollId == pollId && x.VoterId == Context.AuthorId.RawValue) is
             { } existingVote)
             return Response("You already voted.").AsEphemeral();
 
-        var option = _db.PollOptions.FindAsync(optionId).Result!;
+        var option = db.PollOptions.FindAsync(optionId).Result!;
 
-        var vote = _db.PollVotes.Add(new PollVote
+        var vote = db.PollVotes.Add(new PollVote
         {
             Option = option,
             OptionId = optionId,
@@ -323,7 +379,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             VoterId = Context.AuthorId.RawValue
         }).Entity;
 
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
 
         return Response("Thank you for voting!").AsEphemeral();
     }
@@ -333,14 +389,14 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     {
         var interaction = (IComponentInteraction)Context.Interaction;
         var member = await Bot.FetchMemberAsync(Constants.TF2_GUILD_ID, userId);
-        var application = _db.StreamerApplications.Find(userId.RawValue);
+        var application = db.StreamerApplications.Find(userId.RawValue);
 
         if (member == null)
         {
             if (application != null)
             {
-                _db.Remove(application);
-                await _db.SaveChangesAsync();
+                db.Remove(application);
+                await db.SaveChangesAsync();
             }
 
             await interaction.Message.ModifyAsync(x =>
@@ -349,7 +405,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                             $"\nUser left the server";
                 x.Components = new List<LocalRowComponent>();
             });
-            return default;
+            return default!;
         }
 
         await interaction.Message.ModifyAsync(x =>
@@ -359,8 +415,8 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             x.Components = new List<LocalRowComponent>();
         });
 
-        _db.StreamerApplications.Remove(application);
-        await _db.SaveChangesAsync();
+        db.StreamerApplications.Remove(application!);
+        await db.SaveChangesAsync();
 
         try
         {
@@ -373,7 +429,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 " a recent punishment history.We need to be able to trust our streamers with the amount of moderation" +
                 " permissions they are granted.\n\nWe hope you understand."));
 
-            return default;
+            return default!;
         }
         catch
         {
@@ -395,9 +451,9 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
 
         await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, userId, Constants.CONTRACT_KILLER_ROLE_ID);
 
-        var verification = await _db.ModmailVerifications.FindAsync(userId.RawValue);
-        _db.ModmailVerifications.Remove(verification);
-        await _db.SaveChangesAsync();
+        var verification = await db.ModmailVerifications.FindAsync(userId.RawValue);
+        db.ModmailVerifications.Remove(verification!);
+        await db.SaveChangesAsync();
 
         try
         {
@@ -405,7 +461,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             await dmChannel.SendMessageAsync(new LocalMessage().WithContent(
                 "You have been verified, welcome to the TF2 Community Discord server!"));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -427,11 +483,11 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
 
         await Bot.GrantRoleAsync(Constants.TF2_GUILD_ID, userId, Constants.SPECTATOR_ROLE_ID);
 
-        var verification = await _db.ModmailVerifications.FindAsync(userId.RawValue);
-        _db.ModmailVerifications.Remove(verification);
-        await _db.SaveChangesAsync();
+        var verification = await db.ModmailVerifications.FindAsync(userId.RawValue);
+        db.ModmailVerifications.Remove(verification!);
+        await db.SaveChangesAsync();
 
-        return default;
+        return default!;
     }
 
     [ButtonCommand("Verification:NotLinked:*")]
@@ -446,9 +502,9 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             x.Components = new List<LocalRowComponent>();
         });
 
-        var verification = await _db.ModmailVerifications.FindAsync(userId.RawValue);
-        _db.ModmailVerifications.Remove(verification);
-        await _db.SaveChangesAsync();
+        var verification = await db.ModmailVerifications.FindAsync(userId.RawValue);
+        db.ModmailVerifications.Remove(verification!);
+        await db.SaveChangesAsync();
 
         try
         {
@@ -458,7 +514,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 " Once you have done so please make sure to press the verification button again to send the verification request to the modteam." +
                 " Below is a video tutorial on how to link your account: https://youtu.be/6qm6NoQeIvg"));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -478,9 +534,9 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             x.Components = new List<LocalRowComponent>();
         });
 
-        var verification = await _db.ModmailVerifications.FindAsync(userId.RawValue);
-        _db.ModmailVerifications.Remove(verification);
-        await _db.SaveChangesAsync();
+        var verification = await db.ModmailVerifications.FindAsync(userId.RawValue);
+        db.ModmailVerifications.Remove(verification!);
+        await db.SaveChangesAsync();
 
         try
         {
@@ -491,7 +547,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 " Make sure to set Friends, Inventory, and Game Details to public. Need help on how to do this? " +
                 "Return to the verification channel and follow the guides. Press the verify button again once those details are public."));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -499,81 +555,83 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         }
     }
     // NEW SYSTEM
-    [ButtonCommand("SteamSpy:Ban:*:*")]
-    public async Task<IResult> BanUser(Snowflake steamId, Snowflake userId)
+    [ButtonCommand("SteamSpy:Ban:*")]
+    public async Task<IResult> BanUser(int entryId)
     {
         var interaction = (IComponentInteraction)Context.Interaction;
 
-        var modal = new LocalInteractionModalResponse().WithTitle("Extra Information").WithCustomId("SteamSpy:Comment")
+        var modal = new LocalInteractionModalResponse().WithTitle("Extra Information").WithCustomId($"SteamSpy:Comment:{interaction.Message.Id}:{entryId}")
             .WithComponents(new LocalRowComponent().WithComponents(new LocalTextInputComponent().WithLabel("Information about the case?")
                 .WithStyle(TextInputComponentStyle.Paragraph).WithCustomId("details")
                 .WithPlaceholder("Enter here why they were banned.")
                 .WithMinimumInputLength(10)
                 .WithMaximumInputLength(1500)));
         await Context.Interaction.Response().SendModalAsync(modal);
+        return default!;
+    }
+
+    [ModalCommand("SteamSpy:Comment:*:*")]
+    public async Task<IResult> AddBanComment(Snowflake messageId, int entryId)
+    {
+        var modalInteraction = (IModalSubmitInteraction)Context.Interaction;
+
+        var details = ((IRowComponent)modalInteraction.Components[0]).Components
+            .OfType<ITextInputComponent>().Single(x => x.CustomId == "details").Value;
+
+        var message = (IUserMessage)(await Bot.FetchMessageAsync(Context.ChannelId, messageId))!;
         
-        _ = Task.Run(async () =>
+        var steamProfileButton = LocalComponent.CreateFrom(message.Components[0].Components[0]);
+
+        var webhook = factory.CreateClient(Snowflake.Parse(config["WEBHOOK_ID"]!), config["WEBHOOK_TOKEN"]!);
+        await webhook.ModifyMessageAsync(messageId, x =>
         {
-            var modalInteraction = await Bot.WaitForInteractionAsync<IModalSubmitInteraction>(Context.ChannelId, "SteamSpy:Comment");
-            
-            if (modalInteraction is null)
-                return;
-
-            var details = ((IRowComponent)modalInteraction.Components[1]).Components
-                .OfType<ITextInputComponent>().Single(x => x.CustomId == "details").Value;
-            
-            await interaction.Message.ModifyAsync(x =>
-            {
-                x.Content = interaction.Message.Content +
-                            $"\nBanned by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
-                x.Components = new List<LocalRowComponent>();
-            });
-        
-            _db.VerificationEntries.Add(new VerificationEntry
-            {
-                SteamId = steamId,
-                UserId = userId,
-                EntryType = EntryType.Blacklisted,
-                AdditionalComment = details,
-                ModeratorId = Context.AuthorId
-            });
-
-            await _db.SaveChangesAsync();
-            await Context.Bot.CreateBanAsync(Context.GuildId, userId, $"Banned during verification: {details}");
+            x.Content = message.Content +
+                        $"\nBanned by {Context.Interaction.Author.Tag} (`{Context.Interaction.AuthorId}`)";
+            x.Embeds = message.Embeds.Select(LocalEmbed.CreateFrom).ToList();
+            x.Components = new List<LocalRowComponent> { new LocalRowComponent().AddComponent(steamProfileButton) };
         });
-        return default;
+        
+        var entry = await db.VerificationEntries.FindAsync(entryId);
+        entry!.EntryType = EntryType.Blacklisted;
+        entry.AdditionalComment = details!;
+        entry.ModeratorId = Context.AuthorId;
+
+        await db.SaveChangesAsync();
+        await Context.Bot.CreateBanAsync(Context.GuildId, entry.UserId,
+            $"Banned during verification: {details}");
+        return Response("Comment recorded.");
     }
     
-    [ButtonCommand("SteamSpy:Verify:*:*")]
-    public async Task<IResult> VerifyUser(Snowflake steamId, Snowflake userId)
+    [ButtonCommand("SteamSpy:Verify:*")]
+    public async Task<IResult> VerifyUser(int entryId)
     {
         var interaction = (IComponentInteraction)Context.Interaction;
 
-        await interaction.Message.ModifyAsync(x =>
-        {
-            x.Content = interaction.Message.Content +
-                        $"\nVerified by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
-            x.Components = new List<LocalRowComponent>();
-        });
+        var steamProfileButton = LocalComponent.CreateFrom(interaction.Message.Components[0].Components[0]);
+            
+        await Context.Interaction.Response().ModifyMessageAsync(new LocalInteractionMessageResponse().WithContent(
+                interaction.Message.Content +
+                $"\nVerified by {interaction.Author.Tag} (`{interaction.AuthorId}`)")
+            .WithComponents(new List<LocalRowComponent>
+            {
+                new LocalRowComponent().AddComponent(steamProfileButton)
+            })
+            .WithEmbeds(interaction.Message.Embeds.Select(LocalEmbed.CreateFrom)));
         
-        _db.VerificationEntries.Add(new VerificationEntry
-        {
-            SteamId = steamId,
-            UserId = userId,
-            EntryType = EntryType.Accepted,
-            ModeratorId = Context.AuthorId
-        });
+        var entry = await db.VerificationEntries.FindAsync(entryId);
+        entry!.EntryType = EntryType.Accepted;
+        entry.ModeratorId = Context.AuthorId;
 
-        await _db.SaveChangesAsync();
-        await Bot.GrantRoleAsync(Context.GuildId, userId, Constants.CONTRACT_KILLER_ROLE_ID);
+        await db.SaveChangesAsync();
+        await Bot.GrantRoleAsync(Context.GuildId, entry.UserId, Constants.CONTRACT_KILLER_ROLE_ID);
         
         try
         {
-            var dmChannel = await Bot.CreateDirectChannelAsync(userId);
+            var dmChannel = await Bot.CreateDirectChannelAsync(entry.UserId);
             await dmChannel.SendMessageAsync(new LocalMessage().WithContent(
                 "You have been verified, welcome to the TF2 Community Discord server!"));
 
-            return default;
+            return default!;
         }
         catch 
         {
@@ -581,45 +639,43 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         }
     }
     
-    [ButtonCommand("SteamSpy:Reject:*:*")]
-    public async Task<IResult> RejectUser(Snowflake steamId, Snowflake userId)
+    [ButtonCommand("SteamSpy:Reject:*")]
+    public async Task<IResult> RejectUser(int entryId)
     {
         var interaction = (IComponentInteraction)Context.Interaction;
-
-        await interaction.Message.ModifyAsync(x =>
-        {
-            x.Content = interaction.Message.Content +
-                        $"\nRejected by {interaction.Author.Tag} (`{interaction.AuthorId}`)";
-            x.Components = new List<LocalRowComponent>();
-        });
         
-        _db.VerificationEntries.Add(new VerificationEntry
-        {
-            SteamId = steamId,
-            UserId = userId,
-            EntryType = EntryType.Blacklisted,
-            ModeratorId = Context.AuthorId,
-            AdditionalComment = "Rejected"
-        });
-        await _db.SaveChangesAsync();
+        var steamProfileButton = LocalComponent.CreateFrom(interaction.Message.Components[0].Components[0]);
+            
+        await Context.Interaction.Response().ModifyMessageAsync(new LocalInteractionMessageResponse().WithContent(
+                interaction.Message.Content +
+                $"\nRejected by {interaction.Author.Tag} (`{interaction.AuthorId}`)")
+            .WithComponents(new List<LocalRowComponent>
+            {
+                new LocalRowComponent().AddComponent(steamProfileButton)
+            })
+            .WithEmbeds(interaction.Message.Embeds.Select(LocalEmbed.CreateFrom)));
         
-        return default;
+        var entry = await db.VerificationEntries.FindAsync(entryId);
+        entry!.EntryType = EntryType.Rejected;
+        entry.AdditionalComment = "Rejected";
+        entry.ModeratorId = Context.AuthorId;
+        
+        await db.SaveChangesAsync();
+        
+        return default!; 
     }
 
     [ButtonCommand("Forum:Close:*")]
     public async Task<IResult> CloseForumThreadAsync(Snowflake threadId)
     {
-        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, threadId) as IThreadChannel;
+        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, threadId) as IThreadChannel ??
+                     await Bot.FetchChannelAsync(threadId) as IThreadChannel;
 
-        if (thread is null)
-        {
-            thread = await Bot.FetchChannelAsync(threadId) as IThreadChannel;
-        }
-
-        if (!Context.Author.RoleIds.Contains(Constants.MODERATOR_ROLE_ID) && Context.AuthorId != thread.CreatorId)
+        if (!Context.Author.RoleIds.Contains(Constants.MODERATOR_ROLE_ID) && Context.AuthorId != thread!.CreatorId)
             return Response("This button may only be used by moderators or the OP.").AsEphemeral();
 
-        var updatedTags = thread.TagIds.Append(thread.ChannelId == Constants.SUGGESTION_FEEDBACK_FORUM_ID ? (Snowflake)Constants.RESOLVED_SUGGESTION_TAG_ID : Constants.RESOLVED_HELP_TAG_ID).Distinct();
+        var updatedTags = thread!.TagIds.Append(Constants.RESOLVED_HELP_TAG_ID).Distinct().ToList();
+        updatedTags.Remove(updatedTags.First(x => x.RawValue == Constants.OPEN_HELP_TAG_ID));
 
         if (Context.AuthorId == thread.CreatorId)
         {
@@ -637,12 +693,12 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             await View(view);
 
             if (!view.Result) 
-                return default;
+                return default!;
 
             await thread.SendMessageAsync(new LocalMessage().WithContent("Closed by the OP."));
             await thread.ModifyAsync(x => x.TagIds = updatedTags.ToList());
-            await _forumService.CloseThreadAsync(thread);
-            return default;
+            await forumService.CloseThreadAsync(thread);
+            return default!;
         }
 
         var modal = new LocalInteractionModalResponse().WithTitle("Closing Forum Post").WithCustomId("Forum:ModClose")
@@ -651,27 +707,18 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
                 .WithPlaceholder("Reason for closing the forum post...")
                 .WithMaximumInputLength(1500)));
         await Context.Interaction.Response().SendModalAsync(modal);
-        return default;
+        return default!;
     }
 
     [ModalCommand("Forum:ModClose")]
     public async Task<IResult> ModCloseForumAsync(string reason)
     {
-        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId) as IThreadChannel;
+        var thread = Bot.GetChannel(Constants.TF2_GUILD_ID, Context.ChannelId) as IThreadChannel ??
+                     await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel;
 
-        if (thread is null)
-        {
-            thread = await Bot.FetchChannelAsync(Context.ChannelId) as IThreadChannel;
-        }
-
-        var jumpLink = Discord.MessageJumpLink(Constants.TF2_GUILD_ID, thread.Id, thread.LastMessageId.Value);
-
-        var updatedTags = thread.TagIds.Append(thread.ChannelId == Constants.SUGGESTION_FEEDBACK_FORUM_ID ? (Snowflake)Constants.RESOLVED_SUGGESTION_TAG_ID : Constants.RESOLVED_HELP_TAG_ID).Distinct();
-
-        await thread.SendMessageAsync(new LocalMessage().WithContent($"This thread has been closed by a moderator.\nReason: {reason}"));
-        await thread.ModifyAsync(x => x.TagIds = updatedTags.ToList());
         var wasSent = true;
-
+        var jumpLink = Discord.MessageJumpLink(Constants.TF2_GUILD_ID, thread!.Id, thread.LastMessageId!.Value);
+        
         try
         {
             var dm = await Bot.CreateDirectChannelAsync(thread.CreatorId);
@@ -684,26 +731,35 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         }
 
         await Response(wasSent ? "You have closed this thread." : "You have closed this thread but I could not DM the user the reason.").AsEphemeral();
-        await _forumService.CloseThreadAsync(thread);
 
-        return default;
+        await thread.SendMessageAsync(
+            new LocalMessage().WithContent($"This thread has been closed by a moderator.\nReason: {reason}"));
+
+        var updatedTags = thread.TagIds.Append(Constants.RESOLVED_HELP_TAG_ID).ToList();
+        updatedTags.Remove(updatedTags.First(x => x.RawValue == Constants.OPEN_HELP_TAG_ID));
+        
+        await thread.ModifyAsync(x => x.TagIds = updatedTags);
+        
+        await forumService.CloseThreadAsync(thread);
+
+        return default!;
     }
 
     [ButtonCommand("Submission:Vote:*:*")]
     public async Task<IResult> VoteForSubmissionAsync(int contestId, int submissionId)
     {
-        var submission = await _db.ContestSubmissions.FindAsync(submissionId);
+        var submission = await db.ContestSubmissions.FindAsync(submissionId);
 
-        if (submission.CreatorId == Context.AuthorId.RawValue)
+        if (submission!.CreatorId == Context.AuthorId.RawValue)
             return Response($"You cannot vote for your own submission!").AsEphemeral();
 
-        if (_db.ContestVotes.FirstOrDefault(x => x.ContestId == contestId && x.UserId == Context.AuthorId.RawValue) is { } existingVote)
+        if (db.ContestVotes.FirstOrDefault(x => x.ContestId == contestId && x.UserId == Context.AuthorId.RawValue) is { } existingVote)
         {
             existingVote.SubmissionId = submissionId;
         }
         else
         {
-            _db.ContestVotes.Add(new ContestVote
+            db.ContestVotes.Add(new ContestVote
             {
                 UserId = Context.AuthorId.RawValue,
                 ContestId = contestId,
@@ -711,7 +767,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             });
         }
 
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
 
         return Response($"You've successfully voted for #{submissionId}").AsEphemeral();
     }
@@ -744,7 +800,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         try
         {
             var dm = await Bot.CreateDirectChannelAsync(reporterId);
-            await dm.SendMessageAsync(new LocalMessage().WithContent("We either could not find anything wrong in your report or what you reported is simply not against our rules. If you believe that is wrong, you may open a modmail in #contact-the-mods."));
+            await dm.SendMessageAsync(new LocalMessage().WithContent("We either could not find anything wrong in your report or what you reported is simply not against our rules. If you believe that is wrong, you may open a modmail in #contact-the-mods. This is a feedback message for the "));
         }
         catch
         {
@@ -771,14 +827,31 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
             }
         }
 
-        var embed = EmbedUtilities.SuccessBuilder
-            .WithTitle($"Message Report For {message.Author.Tag} ({message.Author.Id})").WithDescription(
-                $"**Reported Content**\n\n**{message.Author.Tag} at {message.CreatedAt():g}**\n{message.Content}\n{imageUrls}\n**Report Reason:**\n{reason}\n\n[Jump To Message]({Discord.MessageJumpLink(Constants.TF2_GUILD_ID, channelId, messageId)})")
-            .WithThumbnailUrl(message.Author.GetAvatarUrl())
-            .WithFooter($"Reported by {Context.Author.Tag} ({Context.AuthorId})", Context.Author.GetAvatarUrl());
+        if (db.ReportedMessages.FirstOrDefault(x => x.MessageId == messageId.RawValue) is not { } existingReport)
+        {
+            var embed = EmbedUtilities.SuccessBuilder
+                .WithTitle($"Message Report For {message.Author.Tag} ({message.Author.Id})").WithDescription(
+                    $"**Reported Content**\n\n**{message.Author.Tag} at {message.CreatedAt():g}**\n{message.Content}\n{imageUrls}\n" +
+                    $"**Report Reason:**\n{reason}\n\n[Jump To Message]({Discord.MessageJumpLink(Constants.TF2_GUILD_ID,
+                        channelId, messageId)})")
+                .WithThumbnailUrl(message.Author.GetAvatarUrl())
+                .WithFooter($"Reported by {Context.Author.Tag} ({Context.AuthorId})", Context.Author.GetAvatarUrl());
 
-        await Bot.SendMessageAsync(Constants.MESSAGE_REPORT_CHANNEL_ID, new LocalMessage().WithEmbeds(embed).WithComponents(new LocalRowComponent().WithComponents(new LocalButtonComponent()
-            .WithLabel("Handled").WithStyle(LocalButtonComponentStyle.Primary).WithCustomId($"Report:Handled:{Context.AuthorId}"), new LocalButtonComponent().WithLabel("Invalid Report").WithStyle(LocalButtonComponentStyle.Danger).WithCustomId($"Report:Invalid:{Context.AuthorId}"))));
+            await Bot.SendMessageAsync(Constants.MESSAGE_REPORT_CHANNEL_ID, new LocalMessage().WithEmbeds(embed)
+                .WithComponents(new LocalRowComponent().WithComponents(new LocalButtonComponent()
+                        .WithLabel("Handled").WithStyle(LocalButtonComponentStyle.Primary)
+                        .WithCustomId($"Report:Handled:{Context.AuthorId}"),
+                    new LocalButtonComponent().WithLabel("Invalid Report").WithStyle(LocalButtonComponentStyle.Danger)
+                        .WithCustomId($"Report:Invalid:{Context.AuthorId}"))));
+
+            db.ReportedMessages.Add(new ReportedMessage
+            {
+                MessageId = messageId.RawValue
+            });
+
+            await db.SaveChangesAsync();
+        }
+        
         return Response("Report Sent!").AsEphemeral();
     }
 
@@ -789,8 +862,9 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         var user = await Bot.FetchUserAsync(userId);
 
         var embed = EmbedUtilities.SuccessBuilder
-            .WithTitle($"User Report For {user.Tag} ({user.Id})").WithDescription(
-                $"**Report Reason:**\n{reason}").WithThumbnailUrl(user.GetAvatarUrl()).WithFooter($"Reported by {Context.Author.Tag} ({Context.AuthorId})", Context.Author.GetAvatarUrl());
+            .WithTitle($"User Report For {user!.Tag} ({user.Id})").WithDescription(
+                $"**Report Reason:**\n{reason}").WithThumbnailUrl(user.GetAvatarUrl()).WithFooter(
+                $"Reported by {Context.Author.Tag} ({Context.AuthorId})", Context.Author.GetAvatarUrl());
 
         await Bot.SendMessageAsync(Constants.MESSAGE_REPORT_CHANNEL_ID, new LocalMessage().WithEmbeds(embed).WithComponents(new LocalRowComponent().WithComponents(new LocalButtonComponent().WithLabel("Handled").WithStyle(LocalButtonComponentStyle.Primary).WithCustomId($"Report:Handled:{Context.AuthorId}"), new LocalButtonComponent().WithLabel("Invalid Report").WithStyle(LocalButtonComponentStyle.Danger).WithCustomId($"Report:Invalid:{Context.AuthorId}"))));
         return Response("Report Sent!").AsEphemeral();
@@ -799,17 +873,17 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
     [ButtonCommand("Suggestion:Vote:*:*")]
     public async Task<IResult> SuggestionVoteAsync(int suggestionId, bool isUpvote)
     {
-        var suggestion = await _db.Suggestions.FindAsync(suggestionId);
+        var suggestion = await db.Suggestions.FindAsync(suggestionId);
         var thanks = "Thanks for voting";
 
-        if (suggestion.UpvoteUsers.Contains(Context.AuthorId.RawValue))
+        if (suggestion!.UpvoteUsers.Contains(Context.AuthorId.RawValue))
         {
             if (isUpvote)
                 return Response("You already upvoted this suggestion!").AsEphemeral();
 
             suggestion.UpvoteUsers.Remove(Context.AuthorId.RawValue);
             suggestion.DownvoteUsers.Add(Context.AuthorId.RawValue);
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
 
             return Response(thanks).AsEphemeral();
         }
@@ -821,7 +895,7 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
 
             suggestion.DownvoteUsers.Remove(Context.AuthorId.RawValue);
             suggestion.UpvoteUsers.Add(Context.AuthorId.RawValue);
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
 
             return Response(thanks).AsEphemeral();
         }
@@ -831,7 +905,24 @@ public class ButtonCommands : DiscordComponentGuildModuleBase
         else
             suggestion.DownvoteUsers.Add(Context.AuthorId.RawValue);
 
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
         return Response(thanks).AsEphemeral();
+    }
+
+    [ButtonCommand("ModPingAssign")]
+    public async Task<IResult> ModPingAssignAsync()
+    {
+        var interaction = (IComponentInteraction)Context.Interaction;
+
+        if (!Context.Author.RoleIds.Contains(Constants.MODERATOR_ROLE_ID))
+            return Response("Only users with the Moderator role can use this button.").AsEphemeral();
+
+        await interaction.Message.ModifyAsync(x =>
+        {
+            x.Components = new List<LocalRowComponent>();
+            x.Content = $"Moderator **{Context.Author.Tag}** is handling this moderation action.";
+        });
+
+        return default!;
     }
 }

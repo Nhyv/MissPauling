@@ -14,13 +14,13 @@ public class Suggestion : IEntityTypeConfiguration<Suggestion>
 
     public ulong MessageId { get; set; }
 
-    public string Content { get; set; }
+    public string Content { get; set; } = null!;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    public string Extension { get; set; }
+    public string? Extension { get; set; }
 
-    public MemoryStream Data { get; set; }
+    public MemoryStream? Data { get; set; }
 
     public List<ulong> UpvoteUsers { get; set; } = new();
 
@@ -34,6 +34,6 @@ public class Suggestion : IEntityTypeConfiguration<Suggestion>
     {
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
-        builder.Property(x => x.Data).HasConversion(x => x.ToArray(), x => new MemoryStream(x));
+        builder.Property(x => x.Data).HasConversion(x => x != null ? x.ToArray() : null, x => x != null ? new MemoryStream(x) : null);
     }
 }

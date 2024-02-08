@@ -6,9 +6,9 @@ namespace MissPaulingBot.Common.Models;
 
 public class DmMessageTemplate : IEntityTypeConfiguration<DmMessageTemplate>
 {
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
-    public string Response { get; set; }
+    public string Response { get; set; } = null!;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

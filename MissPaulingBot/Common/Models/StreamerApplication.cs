@@ -7,11 +7,11 @@ public class StreamerApplication : IEntityTypeConfiguration<StreamerApplication>
 {
     public ulong UserId { get; set; }
 
-    public string ContentAnswer { get; set; }
+    public string ContentAnswer { get; set; } = null!;
 
-    public string ReasonAnswer { get; set; }
+    public string ReasonAnswer { get; set; } = null!;
     
-    public string PlatformAnswer { get; set; }
+    public string PlatformAnswer { get; set; } = null!;
 
     public void Configure(EntityTypeBuilder<StreamerApplication> builder)
     {

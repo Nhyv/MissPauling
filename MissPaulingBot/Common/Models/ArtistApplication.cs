@@ -10,7 +10,7 @@ public class ArtistApplication : IEntityTypeConfiguration<ArtistApplication>
 
     public DateTimeOffset AppliedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    public string UploadUrl { get; set; }
+    public string UploadUrl { get; set; } = null!;
 
     public void Configure(EntityTypeBuilder<ArtistApplication> builder)
     {

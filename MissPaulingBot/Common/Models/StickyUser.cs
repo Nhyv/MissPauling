@@ -8,7 +8,7 @@ public class StickyUser : IEntityTypeConfiguration<StickyUser>
 {
     public ulong UserId { get; set; }
 
-    public List<StickyRole> StickyRoles { get; set; }
+    public List<StickyRole> StickyRoles { get; set; } = null!;
 
     public void Configure(EntityTypeBuilder<StickyUser> builder)
     {

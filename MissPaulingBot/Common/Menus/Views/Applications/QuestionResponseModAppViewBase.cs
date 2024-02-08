@@ -14,9 +14,9 @@ public abstract class QuestionResponseModAppViewBase : ModAppViewBase
 
     public abstract string Question { get; }
 
-    public abstract string GetCurrentResponse();
+    public abstract string? GetCurrentResponse();
 
-    public abstract void ModifyApp(string response);
+    public abstract void ModifyApp(string? response);
 
     [Button(Label = "Edit response", Row = 1, Style = LocalButtonComponentStyle.Secondary)]
     public async ValueTask EditResponseAsync(ButtonEventArgs e)
@@ -26,7 +26,7 @@ public abstract class QuestionResponseModAppViewBase : ModAppViewBase
 
         _ = Task.Run(async () =>
         {
-            var interaction = await Menu.Client.WaitForInteractionAsync<IModalSubmitInteraction>(Menu.ChannelId, customId);
+            var interaction = await Menu.Client.WaitForInteractionAsync<IModalSubmitInteraction>(Menu.ChannelId, customId, timeout:TimeSpan.FromHours(1));
             if (interaction is null)
                 return;
 
@@ -54,7 +54,7 @@ public abstract class QuestionResponseModAppViewBase : ModAppViewBase
         });
     }
 
-    public override void FormatLocalEmbed(LocalEmbed embed)
+    protected override void FormatLocalEmbed(LocalEmbed embed)
     {
         embed.WithTitle(ResponseIsRequired ? $"{Question}*" : Question)
             .WithDescription(GetCurrentResponse() ?? Markdown.Italics("No response."));

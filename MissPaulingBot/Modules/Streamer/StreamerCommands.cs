@@ -70,6 +70,6 @@ public class StreamerCommands : DiscordApplicationModuleBase
             return Response($"Sent! I could not reach the following people: {unreachables}");
         }
 
-        return default;
+        return default!;
     }
 }

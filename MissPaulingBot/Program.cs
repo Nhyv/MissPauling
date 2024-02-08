@@ -4,6 +4,7 @@ using System.Net.Http;
 using Disqord;
 using Disqord.Bot.Hosting;
 using Disqord.Gateway;
+using Disqord.Webhook;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,6 +33,7 @@ using var host = new HostBuilder()
         services.AddSingleton<HttpClient>();
         services.AddSingleton<Random>();
         services.AddDbContext<PaulingDbContext>(x => x.UseNpgsql(context.Configuration["DB_CONNECTION_STRING"]));
+        services.AddWebhookClientFactory();
     })
     .ConfigureDiscordBot<MissPaulingBot.MissPaulingBot>((context, bot) =>
     {

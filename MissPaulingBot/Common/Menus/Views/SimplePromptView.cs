@@ -23,7 +23,7 @@ public class SimplePromptView : PromptView
         await CompleteAsync(true, e);
     }
 
-    protected async override ValueTask OnDenyButton(ButtonEventArgs e)
+    protected override async ValueTask OnDenyButton(ButtonEventArgs e)
     {
         await e.Interaction.Message.ModifyAsync(x => x.Components = new List<LocalRowComponent>());
         await CompleteAsync(false, e);

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -12,109 +13,119 @@ using Microsoft.Extensions.DependencyInjection;
 using MissPaulingBot.Common;
 using MissPaulingBot.Common.Models;
 
-namespace MissPaulingBot.Services
+namespace MissPaulingBot.Services;
+
+public class EmoteStatTrackerService : DiscordBotService
 {
-    public class EmoteStatTrackerService : DiscordBotService
+    private static readonly Regex EmojiRegex = new(@"<(a|):[\w]+:(?<id>\d{16,20})>", RegexOptions.Compiled);
+    private Dictionary<ulong, int> _emoteStats = new();
+
+    [SuppressMessage("ReSharper.DPA", "DPA0007: Large number of DB records", MessageId = "count: 295")]
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        private static readonly Regex EmojiRegex = new(@"<(a|):[\w]+:(?<id>\d{16,20})>", RegexOptions.Compiled);
-        private Dictionary<ulong, int> _emoteCounts = new();
+        using var scope = Bot.Services.CreateScope();
+        await using var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
+        _emoteStats = db.ServerEmojis.ToDictionary(x => x.EmojiId, x => x.Usage);
+        await base.StartAsync(cancellationToken);
+    }
 
-        public override async Task StartAsync(CancellationToken cancellationToken)
+    [SuppressMessage("ReSharper.DPA", "DPA0006: Large number of DB commands", MessageId = "count: 1388")]
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        var statSum = _emoteStats.Sum(x => x.Value);
+        
+        while (!cancellationToken.IsCancellationRequested)
         {
+            await Task.Delay(TimeSpan.FromMinutes(30), cancellationToken);
+
+            if (_emoteStats.Sum(x => x.Value) == statSum) 
+                continue;
+            
             using var scope = Bot.Services.CreateScope();
-            await using var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
-            _emoteCounts = db.ServerEmojis.ToDictionary(x => x.EmojiId, x => x.Usage);
-            await base.StartAsync(cancellationToken);
-        }
 
-        protected override async Task ExecuteAsync(CancellationToken cancellationToken)
-        {
-            while (!cancellationToken.IsCancellationRequested)
+            await using (var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>())
             {
-                using var scope = Bot.Services.CreateScope();
-                await using (var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>())
+                var serverEmojis = await db.ServerEmojis.ToListAsync(cancellationToken);
+                
+                foreach (var emoteStat in _emoteStats)
                 {
-                    foreach (var emoteCount in _emoteCounts)
+                    if (serverEmojis.FirstOrDefault(x => x.EmojiId == emoteStat.Key) is not { } emote)
                     {
-                        if (await db.ServerEmojis.FirstOrDefaultAsync(x => x.EmojiId == emoteCount.Key) is { } emote)
-                        {
-                            if (emote.Usage < emoteCount.Value)
-                            {
-                                emote.Usage = emoteCount.Value;
-                            }
-                        }
+                        _emoteStats.Remove(emoteStat.Key);
+                        continue;
                     }
-                    await db.SaveChangesAsync();
+                    
+                    if (emote.Usage < emoteStat.Value)
+                    {
+                        emote.Usage = emoteStat.Value;
+                    }
                 }
-                await Task.Delay(TimeSpan.FromSeconds(30));
+
+                statSum = _emoteStats.Sum(x => x.Value);
+                await db.SaveChangesAsync(cancellationToken);
             }
         }
+    }
 
-        protected override async ValueTask OnEmojisUpdated(EmojisUpdatedEventArgs e)
+    protected override async ValueTask OnEmojisUpdated(EmojisUpdatedEventArgs e)
+    {
+        if (e.GuildId != Constants.TF2_GUILD_ID)
+            return;
+            
+        using var scope = Bot.Services.CreateScope();
+        await using var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
+
+        var oldEmoteList = db.ServerEmojis.AsNoTracking().ToList();
+
+        if (oldEmoteList.Count == e.NewEmojis.Count) 
+            return;
+
+        if (oldEmoteList.Count > e.NewEmojis.Count)
         {
-			if (e.GuildId != Constants.TF2_GUILD_ID)
-				return;
-			
-            using var scope = Bot.Services.CreateScope();
-            await using var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
-
-            var oldEmoteList = db.ServerEmojis.Select(x => x.EmojiId).ToList();
-
-            if (oldEmoteList.Count > e.NewEmojis.Count)
+            foreach (var oldEmote in oldEmoteList.Where(oldEmote => !e.NewEmojis.ContainsKey(oldEmote.EmojiId))) 
             {
-                foreach (var oldEmote in oldEmoteList)
-                {
-                    if (!e.NewEmojis.ContainsKey(oldEmote))
-                    {
-                        db.Remove(db.ServerEmojis.First(x => x.EmojiId == oldEmote));
-                    }
-                }
-            }
-
-            if (e.NewEmojis.Count > oldEmoteList.Count)
-            {
-                foreach (var newEmoji in e.NewEmojis)
-                {
-                    if (!oldEmoteList.Contains(newEmoji.Key))
-                    {
-                        db.Add(new ServerEmoji
-                        {
-                            EmojiId = newEmoji.Key
-                        });
-                    }
-                }
+                db.ServerEmojis.Remove(oldEmote);
             }
             await db.SaveChangesAsync();
+            return;
         }
-       
-        protected override ValueTask OnMessageReceived(BotMessageReceivedEventArgs e)
+        foreach (var emoji in e.NewEmojis.Where(x => oldEmoteList.All(y => y.EmojiId != x.Key.RawValue)))
         {
-            if (e.Message.Author.IsBot || string.IsNullOrWhiteSpace(e.Message.Content) || e.GuildId != Constants.TF2_GUILD_ID) 
-                return ValueTask.CompletedTask;
-
-            var emojis = Bot.GetGuild(Constants.TF2_GUILD_ID).Emojis;
-            var alreadyUpdated = new HashSet<Snowflake>();
-            
-            EmojiRegex.Replace(e.Message.Content, Remove);
-            return ValueTask.CompletedTask;
-            
-            string Remove(Match m)
+            db.Add(new ServerEmoji
             {
-                _ = Snowflake.TryParse(m.Groups["id"].Value, out var id); // ?<id> is the group
+                EmojiId = emoji.Key.RawValue
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+       
+    protected override ValueTask OnMessageReceived(BotMessageReceivedEventArgs e)
+    {
+        if (e.Message.Author.IsBot || string.IsNullOrWhiteSpace(e.Message.Content) || e.GuildId != Constants.TF2_GUILD_ID) 
+            return ValueTask.CompletedTask;
 
-                if (!alreadyUpdated.Add(id))
-                {
-                    return string.Empty;
-                }
-                
-                if (emojis.ContainsKey(id))
-                {
-                    _emoteCounts[id] = _emoteCounts.TryGetValue(id, out var count)
-                        ? count + 1
-                        : 1;
-                }
+        var emojis = Bot.GetGuild(Constants.TF2_GUILD_ID)!.Emojis;
+        var alreadyUpdated = new HashSet<Snowflake>();
+            
+        EmojiRegex.Replace(e.Message.Content, Remove);
+        return ValueTask.CompletedTask;
+            
+        string Remove(Match m)
+        {
+            _ = Snowflake.TryParse(m.Groups["id"].Value, out var id); // ?<id> is the group
+
+            if (!alreadyUpdated.Add(id))
+            {
                 return string.Empty;
             }
+                
+            if (emojis.ContainsKey(id))
+            {
+                _emoteStats[id] = _emoteStats.TryGetValue(id, out var count)
+                    ? count + 1
+                    : 1;
+            }
+            return string.Empty;
         }
     }
 }

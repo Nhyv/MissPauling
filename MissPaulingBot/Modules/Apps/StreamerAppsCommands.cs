@@ -44,14 +44,14 @@ public class StreamerAppsCommands : DiscordApplicationModuleBase
                 .WithMaximumInputLength(Discord.Limits.Message.Embed.Field.MaxValueLength)
                 .WithPlaceholder("Enter your answer here...")),
                 new LocalRowComponent().WithComponents(new LocalTextInputComponent()
-                .WithLabel("Any other streaming profiles? Link them!").WithCustomId("platform")
+                .WithLabel("Other platforms").WithCustomId("platform")
                 .WithStyle(TextInputComponentStyle.Paragraph)
                 .WithIsRequired()
                 .WithMaximumInputLength(Discord.Limits.Message.Embed.Field.MaxValueLength)
-                .WithPlaceholder("Enter your answer here...")));
+                .WithPlaceholder("If you have any other streaming links, feel free to paste them here!")));
         await Context.Interaction.Response().SendModalAsync(modal);
 
-        return default;
+        return default!;
 
         
     }

@@ -17,7 +17,7 @@ public class ModteamService : DiscordBotService
     {
         await Bot.WaitUntilReadyAsync(stoppingToken);
         var guild = Bot.GetGuild(Constants.TF2_GUILD_ID);
-        var chunk = await Bot.Chunker.ChunkAsync(guild, stoppingToken);
+        var chunk = await Bot.Chunker.ChunkAsync(guild!, stoppingToken);
 
         if (chunk)
         {
@@ -89,7 +89,7 @@ public class ModteamService : DiscordBotService
                 counter++;
             }
 
-            if (!message.Content.StartsWith("**TF2 Community Moderation Team**") || !message.Author.IsBot)
+            if (!message!.Content.StartsWith("**TF2 Community Moderation Team**") || !message.Author.IsBot)
             {
                 await Bot.SendMessageAsync(Constants.RULES_N_INFO_CHANNEL_ID,
                     new LocalMessage().WithContent(builder.ToString()).WithAllowedMentions(LocalAllowedMentions.None), cancellationToken: stoppingToken);

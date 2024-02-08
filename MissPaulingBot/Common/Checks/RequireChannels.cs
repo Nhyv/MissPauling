@@ -4,52 +4,40 @@ using Disqord;
 using Disqord.Bot.Commands;
 using Qmmands;
 
-namespace MissPaulingBot.Common.Checks
+namespace MissPaulingBot.Common.Checks;
+
+public class RequireChannels(RequireChannels.ChannelMode mode) : DiscordCheckAttribute
 {
-    public class RequireChannels : DiscordCheckAttribute
+    private static readonly Snowflake[] ModChannels =
     {
-        private static readonly Snowflake[] ModChannels =
+        832373987077259325,
+        570424279762468874,
+        732441662931992638,
+        420441288660484096,
+        565360990959697940,
+        930864646632640542
+    };
+
+    public enum ChannelMode
+    {
+        Mod,
+        Approved,
+        Utility
+    }
+
+    public override ValueTask<IResult> CheckAsync(IDiscordCommandContext context)
+    {
+        if (ModChannels.Contains(context.ChannelId)) return Results.Success;
+
+        return mode switch
         {
-            832373987077259325,
-            570424279762468874,
-            732441662931992638,
-            420441288660484096,
-            565360990959697940,
-            930864646632640542
+            ChannelMode.Approved when context.ChannelId == Constants.BOTCHAT_CHANNEL_ID => Results.Success,
+            ChannelMode.Approved => Results.Failure("This command can only be used in botchat or in the modchats."),
+            ChannelMode.Utility when context.ChannelId == Constants.SERVER_META_CHANNEL_ID ||
+                                     context.ChannelId == Constants.BOTCHAT_CHANNEL_ID => Results.Success,
+            ChannelMode.Utility => Results.Failure(
+                "This command can only be used in botchat, server-meta, or in the modchats."),
+            _ => Results.Failure("This command can only be used in modchat.")
         };
-
-        private readonly ChannelMode CurrentMode;
-
-        public enum ChannelMode
-        {
-            Mod,
-            Approved,
-            Utility
-        }
-
-        public RequireChannels(ChannelMode mode)
-        {
-            CurrentMode = mode;
-        }
-
-        public override ValueTask<IResult> CheckAsync(IDiscordCommandContext context)
-        {
-            if (ModChannels.Contains(context.ChannelId)) return Results.Success;
-
-            switch (CurrentMode)
-            {
-                case ChannelMode.Approved:
-                    if (context.ChannelId == Constants.BOTCHAT_CHANNEL_ID) return Results.Success;
-
-                    return Results.Failure("This command can only be used in botchat or in the modchats.");
-                case ChannelMode.Utility:
-                    if (context.ChannelId == Constants.SERVER_META_CHANNEL_ID ||
-                        context.ChannelId == Constants.BOTCHAT_CHANNEL_ID) return Results.Success;
-
-                    return Results.Failure("This command can only be used in botchat, server-meta, or in the modchats.");
-            }
-
-            return Results.Failure("This command can only be used in modchat.");
-        }
     }
 }

@@ -2,26 +2,25 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace MissPaulingBot.Common.Models
+namespace MissPaulingBot.Common.Models;
+
+public class UserNote : IEntityTypeConfiguration<UserNote>
 {
-    public class UserNote : IEntityTypeConfiguration<UserNote>
+    public int Id { get; set; }
+
+    public ulong UserId { get; set; }
+
+    public string Username { get; set; } = null!;
+
+    public string Note { get; set; } = null!;
+
+    public ulong ModeratorId { get; set; }
+
+    public DateTimeOffset GivenAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public void Configure(EntityTypeBuilder<UserNote> builder)
     {
-        public int Id { get; set; }
-
-        public ulong UserId { get; set; }
-
-        public string Username { get; set; }
-
-        public string Note { get; set; }
-
-        public ulong ModeratorId { get; set; }
-
-        public DateTimeOffset GivenAt { get; set; } = DateTimeOffset.UtcNow;
-
-        public void Configure(EntityTypeBuilder<UserNote> builder)
-        {
-            builder.HasKey(x => x.Id);
-            builder.Property(x => x.Id).ValueGeneratedOnAdd();
-        }
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedOnAdd();
     }
 }

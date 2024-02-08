@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -17,7 +18,7 @@ public class Contest : IEntityTypeConfiguration<Contest>
 {
     public int Id { get; set; }
 
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     public ulong ChannelId { get; set; }
 
@@ -32,6 +33,8 @@ public class Contest : IEntityTypeConfiguration<Contest>
     public DateTimeOffset AllowResultsViewingAfter { get; set; }
 
     public DateTimeOffset AllowResultsViewingUntil { get; set; }
+
+    public List<string> AcceptedFileTypes { get; set; } = null!;
 
     public ContestState State
     {
@@ -54,10 +57,7 @@ public class Contest : IEntityTypeConfiguration<Contest>
             if (now < AllowResultsViewingAfter)
                 return ContestState.Idle;
 
-            if (now < AllowResultsViewingUntil)
-                return ContestState.Results;
-
-            return ContestState.Completed;
+            return now < AllowResultsViewingUntil ? ContestState.Results : ContestState.Completed;
         }
     }
 

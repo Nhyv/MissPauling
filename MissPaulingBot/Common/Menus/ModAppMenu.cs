@@ -11,30 +11,23 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace MissPaulingBot.Common.Menus;
 
-public class ModAppMenu : DefaultInteractionMenu
+public class ModAppMenu(ModApplication app, IUserInteraction interaction) : DefaultInteractionMenu(new AgeResponseView(), interaction)
 {
-    public ModAppMenu(ModApplication app, IUserInteraction interaction)
-        : base(new AgeResponseView(), interaction)
+    public ModApplication App { get; } = app;
+
+    public List<ModAppViewBase> Views { get; } = new()
     {
-        App = app;
-        Views = new List<ModAppViewBase>
-        {
-            new AgeResponseView(),
-            new AvailabilitiesResponseView(),
-            new ChannelsResponseView(),
-            new QualificationResponseView(),
-            new ReasonResponseView(),
-            new PersonalResponseView(),
-            new ButtonsResponseView(),
-            new ButtingHeadsResponseView(),
-            new AbuseResponseView(),
-            new ChangeResponseView()
-        };
-    }
-
-    public ModApplication App { get; }
-
-    public List<ModAppViewBase> Views { get; }
+        new AgeResponseView(),
+        new AvailabilitiesResponseView(),
+        new ChannelsResponseView(),
+        new QualificationResponseView(),
+        new ReasonResponseView(),
+        new PersonalResponseView(),
+        new ButtonsResponseView(),
+        new ButtingHeadsResponseView(),
+        new AbuseResponseView(),
+        new ChangeResponseView()
+    };
 
     public int CurrentIndex { get; set; }
 
@@ -48,7 +41,7 @@ public class ModAppMenu : DefaultInteractionMenu
         using var scope = bot.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PaulingDbContext>();
 
-        if (db.ModApplications.AsNoTracking().FirstOrDefault(x => x.UserId == AuthorId.Value.RawValue) is { } existingThing)
+        if (db.ModApplications.AsNoTracking().FirstOrDefault(x => x.UserId == AuthorId!.Value.RawValue) is not null)
             db.Update(App);
         else
             db.Add(App);

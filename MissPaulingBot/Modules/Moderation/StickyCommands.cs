@@ -43,7 +43,7 @@ public class StickyCommands : DiscordApplicationGuildModuleBase
         await _db.SaveChangesAsync();
 
         var guild = Bot.GetGuild(Constants.TF2_GUILD_ID);
-        var members = guild.Members.Where(x => x.Value.RoleIds.Contains(role.Id));
+        var members = guild!.Members.Where(x => x.Value.RoleIds.Contains(role.Id)).ToList();
         var stickyUsers = await _db.StickyUsers.Include(x => x.StickyRoles).ToListAsync();
 
         foreach (var member in members)

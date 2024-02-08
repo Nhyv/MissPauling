@@ -56,7 +56,7 @@ public class PollService : DiscordBotService
 
             foreach (var poll in polls.Where(x => x.State == PollState.Completed && x.MessageId.HasValue))
             {
-                var message = (IUserMessage)await Bot.FetchMessageAsync(poll.ChannelId, poll.MessageId!.Value, cancellationToken:stoppingToken);
+                var message = (IUserMessage)(await Bot.FetchMessageAsync(poll.ChannelId, poll.MessageId!.Value, cancellationToken:stoppingToken))!;
 
                 if (message.Components.Count == 0)
                     continue;
@@ -76,7 +76,7 @@ public class PollService : DiscordBotService
                         x.Embeds = new List<LocalEmbed>(message.Embeds.Select(x => LocalEmbed.CreateFrom(x)))
                             .Append(embed).ToList();
                         x.Components = new List<LocalRowComponent>();
-                    });
+                    }, cancellationToken: stoppingToken);
                 }
                 else
                 {
